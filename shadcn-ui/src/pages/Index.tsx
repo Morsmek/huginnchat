@@ -17,18 +17,13 @@ export default function Index() {
       const participantName = name.trim() || generateParticipantName();
       const config = await createRoom(participantName);
       
-      // Store participant info in sessionStorage
+      // Store all config in sessionStorage
       sessionStorage.setItem('participantId', config.participantId);
       sessionStorage.setItem('participantName', participantName);
+      sessionStorage.setItem('roomId', config.roomId);
+      sessionStorage.setItem('encryptionKey', config.encryptionKey);
       
-      // Set the hash with room credentials
-      const params = new URLSearchParams({
-        room: config.roomId,
-        key: config.encryptionKey,
-      });
-      
-      // Navigate to room page with hash
-      window.location.hash = params.toString();
+      // Navigate to room
       navigate('/room');
     } catch (error) {
       console.error('Failed to create room:', error);

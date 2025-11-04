@@ -9,9 +9,9 @@ import { toast } from 'sonner';
 import SecurityStatus from '@/components/SecurityStatus';
 import ChatMessage from '@/components/ChatMessage';
 import ParticipantList from '@/components/ParticipantList';
-import { parseRoomUrl, clearRoomUrl } from '@/lib/room';
+import { parseRoomUrl, clearRoomUrl, generateRoomUrl } from '@/lib/room';
 import { encryptMessage, generateRoomId } from '@/lib/crypto';
-import type { Message, Participant } from '@/lib/types';
+import type { Message, Participant, RoomConfig } from '@/lib/types';
 
 export default function Room() {
   const navigate = useNavigate();
@@ -22,10 +22,33 @@ export default function Room() {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isEncrypted, setIsEncrypted] = useState(false);
+  const [shareableUrl, setShareableUrl] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const config = parseRoomUrl();
+    // First try to get from URL hash
+    let config = parseRoomUrl();
+    
+    // If not in URL, try sessionStorage (for newly created rooms)
+    if (!config) {
+      const roomId = sessionStorage.getItem('roomId');
+      const encryptionKey = sessionStorage.getItem('encryptionKey');
+      
+      if (roomId && encryptionKey) {
+        config = { roomId, encryptionKey };
+        
+        // Generate shareable URL and set it in the address bar
+        const fullConfig: RoomConfig = {
+          roomId,
+          encryptionKey,
+          participantId,
+          participantName,
+        };
+        const url = generateRoomUrl(fullConfig);
+        window.history.replaceState(null, '', url);
+      }
+    }
+    
     if (!config) {
       toast.error('Invalid room URL');
       navigate('/');
@@ -34,6 +57,15 @@ export default function Room() {
 
     setRoomConfig(config);
     setIsEncrypted(true);
+    
+    // Generate shareable URL
+    const fullConfig: RoomConfig = {
+      roomId: config.roomId,
+      encryptionKey: config.encryptionKey,
+      participantId,
+      participantName,
+    };
+    setShareableUrl(generateRoomUrl(fullConfig));
 
     // Add self as participant
     setParticipants([
@@ -51,7 +83,7 @@ export default function Room() {
       timestamp: Date.now(),
       sender: 'system',
       senderName: 'System',
-      content: `Welcome to the room! Share the URL to invite others. Messages are end-to-end encrypted and will be destroyed when you leave.`,
+      content: `Welcome to the room, ${participantName}! Share the URL to invite others. Messages are end-to-end encrypted and will be destroyed when you leave.`,
       iv: '',
     };
     setMessages([welcomeMessage]);
@@ -60,6 +92,9 @@ export default function Room() {
     return () => {
       // Clear messages from memory
       setMessages([]);
+      // Clear room credentials from sessionStorage
+      sessionStorage.removeItem('roomId');
+      sessionStorage.removeItem('encryptionKey');
     };
   }, [navigate, participantId, participantName]);
 
@@ -97,7 +132,7 @@ export default function Room() {
   };
 
   const handleCopyRoomUrl = () => {
-    navigator.clipboard.writeText(window.location.href);
+    navigator.clipboard.writeText(shareableUrl || window.location.href);
     toast.success('Room URL copied to clipboard');
   };
 
@@ -105,6 +140,8 @@ export default function Room() {
     if (confirm('Are you sure you want to leave? All messages will be destroyed.')) {
       clearRoomUrl();
       sessionStorage.removeItem('participantId');
+      sessionStorage.removeItem('roomId');
+      sessionStorage.removeItem('encryptionKey');
       navigate('/');
     }
   };
