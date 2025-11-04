@@ -1,11 +1,16 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Lock, Zap, Eye, MessageSquare, Key, Shuffle } from 'lucide-react';
+import { Shield, Lock, Zap, Eye, MessageSquare, Key, Shuffle, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { createRoom, generateParticipantName } from '@/lib/room';
 
 export default function Index() {
@@ -14,6 +19,7 @@ export default function Index() {
   const [customRoomName, setCustomRoomName] = useState('');
   const [password, setPassword] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [selectedMode, setSelectedMode] = useState<'quick' | 'custom' | 'private'>('quick');
 
   const handleQuickJoin = async () => {
     setIsCreating(true);
@@ -85,6 +91,23 @@ export default function Index() {
     navigate('/room');
   };
 
+  const handleCreateRoom = () => {
+    if (selectedMode === 'quick') {
+      handleQuickJoin();
+    } else if (selectedMode === 'custom') {
+      handleCustomRoom();
+    } else {
+      handlePrivateRandom();
+    }
+  };
+
+  const isFormValid = () => {
+    if (selectedMode === 'quick') return true;
+    if (selectedMode === 'custom') return customRoomName.trim() && password.trim();
+    if (selectedMode === 'private') return password.trim();
+    return false;
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f1419] via-[#1a1f2e] to-[#0f1419] flex flex-col">
       {/* Header */}
@@ -127,7 +150,7 @@ export default function Index() {
                 Choose how you want to create or join a room
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
               {/* Name Input */}
               <div>
                 <Label className="text-sm text-gray-400 mb-2 block">
@@ -142,99 +165,136 @@ export default function Index() {
                 />
               </div>
 
-              <Tabs defaultValue="quick" className="w-full">
-                <TabsList className="grid w-full grid-cols-3 bg-[#0f1419]">
-                  <TabsTrigger value="quick" className="data-[state=active]:bg-[#5DBEBD] data-[state=active]:text-white">
-                    Quick Join
-                  </TabsTrigger>
-                  <TabsTrigger value="custom" className="data-[state=active]:bg-[#5DBEBD] data-[state=active]:text-white">
-                    Custom Room
-                  </TabsTrigger>
-                  <TabsTrigger value="private" className="data-[state=active]:bg-[#5DBEBD] data-[state=active]:text-white">
-                    Private Random
-                  </TabsTrigger>
-                </TabsList>
+              {/* Room Type Selection - Three Separate Cards */}
+              <div className="space-y-4">
+                <TooltipProvider>
+                  {/* Quick Join Option */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setSelectedMode('quick')}
+                        className={`w-full text-left transition-all ${
+                          selectedMode === 'quick'
+                            ? 'bg-[#5DBEBD]/10 border-2 border-[#5DBEBD]'
+                            : 'bg-[#0f1419] border-2 border-[#2a3142] hover:border-[#5DBEBD]/50'
+                        } rounded-lg p-5 cursor-pointer`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={`p-3 rounded-lg ${
+                            selectedMode === 'quick' ? 'bg-[#5DBEBD]' : 'bg-[#2a3142]'
+                          }`}>
+                            <Shuffle className={`w-6 h-6 ${
+                              selectedMode === 'quick' ? 'text-white' : 'text-[#5DBEBD]'
+                            }`} />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="text-white font-semibold text-lg mb-1">Quick Join</h3>
+                            <p className="text-sm text-gray-400">
+                              Random room name, shareable URL
+                            </p>
+                          </div>
+                          <Info className="w-5 h-5 text-gray-500" />
+                        </div>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs bg-[#1a1f2e] border-[#5DBEBD]">
+                      <p className="text-sm">
+                        <strong className="text-[#5DBEBD]">Quick Join:</strong> Generate a random room ID and share the URL. 
+                        No password needed - the encryption key is included in the link. Perfect for quick, casual chats.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
 
-                {/* Quick Join Tab */}
-                <TabsContent value="quick" className="space-y-4 mt-6">
-                  <div className="bg-[#0f1419] border border-[#2a3142] rounded-lg p-5">
-                    <div className="flex items-start gap-3">
-                      <Shuffle className="w-5 h-5 text-[#5DBEBD] mt-0.5 flex-shrink-0" />
-                      <div>
-                        <h3 className="text-white font-medium mb-1">Random Room Name</h3>
-                        <p className="text-sm text-gray-400">
-                          Generate a random room and share the URL. No password needed.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <Button
-                    onClick={handleQuickJoin}
-                    disabled={isCreating}
-                    className="w-full bg-[#5DBEBD] hover:bg-[#4A9B9A] text-white"
-                  >
-                    <MessageSquare className="w-4 h-4 mr-2" />
-                    {isCreating ? 'Creating...' : 'Create Room'}
-                  </Button>
-                </TabsContent>
+                  {/* Custom Room Option */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setSelectedMode('custom')}
+                        className={`w-full text-left transition-all ${
+                          selectedMode === 'custom'
+                            ? 'bg-[#5DBEBD]/10 border-2 border-[#5DBEBD]'
+                            : 'bg-[#0f1419] border-2 border-[#2a3142] hover:border-[#5DBEBD]/50'
+                        } rounded-lg p-5 cursor-pointer`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={`p-3 rounded-lg ${
+                            selectedMode === 'custom' ? 'bg-[#5DBEBD]' : 'bg-[#2a3142]'
+                          }`}>
+                            <Key className={`w-6 h-6 ${
+                              selectedMode === 'custom' ? 'text-white' : 'text-[#5DBEBD]'
+                            }`} />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="text-white font-semibold text-lg mb-1">Custom Room</h3>
+                            <p className="text-sm text-gray-400">
+                              Choose name + password protection
+                            </p>
+                          </div>
+                          <Info className="w-5 h-5 text-gray-500" />
+                        </div>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs bg-[#1a1f2e] border-[#5DBEBD]">
+                      <p className="text-sm">
+                        <strong className="text-[#5DBEBD]">Custom Room:</strong> Choose your own room name 
+                        (e.g., "team-meeting"). Password required to join. Great for organized, recurring meetings 
+                        with an extra layer of security.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
 
-                {/* Custom Room Tab */}
-                <TabsContent value="custom" className="space-y-4 mt-6">
-                  <div className="bg-[#0f1419] border border-[#2a3142] rounded-lg p-5">
-                    <div className="flex items-start gap-3">
-                      <Key className="w-5 h-5 text-[#5DBEBD] mt-0.5 flex-shrink-0" />
-                      <div>
-                        <h3 className="text-white font-medium mb-1">Custom Room Name + Password</h3>
-                        <p className="text-sm text-gray-400">
-                          Choose your own room name. Password required to join.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <div>
-                      <Label className="text-sm text-gray-400 mb-2 block">Room Name</Label>
-                      <Input
-                        type="text"
-                        placeholder="e.g., team-meeting"
-                        value={customRoomName}
-                        onChange={(e) => setCustomRoomName(e.target.value)}
-                        className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-sm text-gray-400 mb-2 block">Password</Label>
-                      <Input
-                        type="password"
-                        placeholder="Enter room password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
-                      />
-                    </div>
-                  </div>
-                  <Button
-                    onClick={handleCustomRoom}
-                    disabled={isCreating || !customRoomName.trim() || !password.trim()}
-                    className="w-full bg-[#5DBEBD] hover:bg-[#4A9B9A] text-white"
-                  >
-                    <Lock className="w-4 h-4 mr-2" />
-                    {isCreating ? 'Creating...' : 'Create Custom Room'}
-                  </Button>
-                </TabsContent>
+                  {/* Private Random Option */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setSelectedMode('private')}
+                        className={`w-full text-left transition-all ${
+                          selectedMode === 'private'
+                            ? 'bg-[#5DBEBD]/10 border-2 border-[#5DBEBD]'
+                            : 'bg-[#0f1419] border-2 border-[#2a3142] hover:border-[#5DBEBD]/50'
+                        } rounded-lg p-5 cursor-pointer`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={`p-3 rounded-lg ${
+                            selectedMode === 'private' ? 'bg-[#5DBEBD]' : 'bg-[#2a3142]'
+                          }`}>
+                            <Shield className={`w-6 h-6 ${
+                              selectedMode === 'private' ? 'text-white' : 'text-[#5DBEBD]'
+                            }`} />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="text-white font-semibold text-lg mb-1">Private Random</h3>
+                            <p className="text-sm text-gray-400">
+                              Random name + password required
+                            </p>
+                          </div>
+                          <Info className="w-5 h-5 text-gray-500" />
+                        </div>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs bg-[#1a1f2e] border-[#5DBEBD]">
+                      <p className="text-sm">
+                        <strong className="text-[#5DBEBD]">Private Random:</strong> Random room name with 
+                        password protection. Share URL and password separately. Combines anonymity with security - 
+                        ideal for sensitive discussions.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
 
-                {/* Private Random Tab */}
-                <TabsContent value="private" className="space-y-4 mt-6">
-                  <div className="bg-[#0f1419] border border-[#2a3142] rounded-lg p-5">
-                    <div className="flex items-start gap-3">
-                      <Shield className="w-5 h-5 text-[#5DBEBD] mt-0.5 flex-shrink-0" />
-                      <div>
-                        <h3 className="text-white font-medium mb-1">Random Room + Password</h3>
-                        <p className="text-sm text-gray-400">
-                          Random room name with password protection. Share URL + password.
-                        </p>
-                      </div>
-                    </div>
+              {/* Dynamic Form Fields Based on Selection */}
+              {selectedMode === 'custom' && (
+                <div className="space-y-3 pt-2">
+                  <div>
+                    <Label className="text-sm text-gray-400 mb-2 block">Room Name</Label>
+                    <Input
+                      type="text"
+                      placeholder="e.g., team-meeting"
+                      value={customRoomName}
+                      onChange={(e) => setCustomRoomName(e.target.value)}
+                      className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
+                    />
                   </div>
                   <div>
                     <Label className="text-sm text-gray-400 mb-2 block">Password</Label>
@@ -246,16 +306,31 @@ export default function Index() {
                       className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
                     />
                   </div>
-                  <Button
-                    onClick={handlePrivateRandom}
-                    disabled={isCreating || !password.trim()}
-                    className="w-full bg-[#5DBEBD] hover:bg-[#4A9B9A] text-white"
-                  >
-                    <Shield className="w-4 h-4 mr-2" />
-                    {isCreating ? 'Creating...' : 'Create Private Room'}
-                  </Button>
-                </TabsContent>
-              </Tabs>
+                </div>
+              )}
+
+              {selectedMode === 'private' && (
+                <div className="pt-2">
+                  <Label className="text-sm text-gray-400 mb-2 block">Password</Label>
+                  <Input
+                    type="password"
+                    placeholder="Enter room password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
+                  />
+                </div>
+              )}
+
+              {/* Create Room Button */}
+              <Button
+                onClick={handleCreateRoom}
+                disabled={isCreating || !isFormValid()}
+                className="w-full bg-[#5DBEBD] hover:bg-[#4A9B9A] text-white"
+              >
+                <MessageSquare className="w-4 h-4 mr-2" />
+                {isCreating ? 'Creating...' : 'Create Room'}
+              </Button>
 
               {/* Join Existing Room */}
               <div className="pt-4 border-t border-[#2a3142]">
