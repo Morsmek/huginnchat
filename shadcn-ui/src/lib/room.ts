@@ -2,16 +2,25 @@
  * Room management and URL parsing utilities
  */
 
-import { generateEncryptionKey, generateRoomId } from './crypto';
+import { generateEncryptionKey, generateRoomId, deriveKeyFromPassword } from './crypto';
 import type { RoomConfig } from './types';
 
 /**
  * Create a new room with generated credentials
  */
-export async function createRoom(participantName: string): Promise<RoomConfig> {
-  const roomId = generateRoomId();
-  const encryptionKey = await generateEncryptionKey();
+export async function createRoom(
+  participantName: string,
+  customRoomName?: string,
+  password?: string
+): Promise<RoomConfig> {
+  const roomId = customRoomName || generateRoomId();
   const participantId = generateRoomId();
+  
+  // If password is provided, derive encryption key from it
+  // Otherwise generate a random key
+  const encryptionKey = password 
+    ? await deriveKeyFromPassword(password, roomId)
+    : await generateEncryptionKey();
 
   return {
     roomId,
@@ -24,11 +33,16 @@ export async function createRoom(participantName: string): Promise<RoomConfig> {
 /**
  * Generate a shareable room URL
  */
-export function generateRoomUrl(config: RoomConfig): string {
+export function generateRoomUrl(config: RoomConfig, includeKey: boolean = true): string {
   const params = new URLSearchParams({
     room: config.roomId,
-    key: config.encryptionKey,
   });
+  
+  // Only include key in URL if it's a random room without password
+  if (includeKey) {
+    params.set('key', config.encryptionKey);
+  }
+  
   return `${window.location.origin}/#${params.toString()}`;
 }
 

@@ -1,29 +1,77 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Lock, Zap, Eye, MessageSquare } from 'lucide-react';
+import { Shield, Lock, Zap, Eye, MessageSquare, Key, Shuffle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Label } from '@/components/ui/label';
 import { createRoom, generateParticipantName } from '@/lib/room';
 
 export default function Index() {
   const navigate = useNavigate();
   const [name, setName] = useState('');
+  const [customRoomName, setCustomRoomName] = useState('');
+  const [password, setPassword] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
-  const handleCreateRoom = async () => {
+  const handleQuickJoin = async () => {
     setIsCreating(true);
     try {
       const participantName = name.trim() || generateParticipantName();
       const config = await createRoom(participantName);
       
-      // Store all config in sessionStorage
       sessionStorage.setItem('participantId', config.participantId);
       sessionStorage.setItem('participantName', participantName);
       sessionStorage.setItem('roomId', config.roomId);
       sessionStorage.setItem('encryptionKey', config.encryptionKey);
       
-      // Navigate to room
+      navigate('/room');
+    } catch (error) {
+      console.error('Failed to create room:', error);
+      setIsCreating(false);
+    }
+  };
+
+  const handleCustomRoom = async () => {
+    if (!customRoomName.trim() || !password.trim()) {
+      return;
+    }
+    
+    setIsCreating(true);
+    try {
+      const participantName = name.trim() || generateParticipantName();
+      const config = await createRoom(participantName, customRoomName.trim(), password.trim());
+      
+      sessionStorage.setItem('participantId', config.participantId);
+      sessionStorage.setItem('participantName', participantName);
+      sessionStorage.setItem('roomId', config.roomId);
+      sessionStorage.setItem('encryptionKey', config.encryptionKey);
+      sessionStorage.setItem('roomPassword', password.trim());
+      
+      navigate('/room');
+    } catch (error) {
+      console.error('Failed to create room:', error);
+      setIsCreating(false);
+    }
+  };
+
+  const handlePrivateRandom = async () => {
+    if (!password.trim()) {
+      return;
+    }
+    
+    setIsCreating(true);
+    try {
+      const participantName = name.trim() || generateParticipantName();
+      const config = await createRoom(participantName, undefined, password.trim());
+      
+      sessionStorage.setItem('participantId', config.participantId);
+      sessionStorage.setItem('participantName', participantName);
+      sessionStorage.setItem('roomId', config.roomId);
+      sessionStorage.setItem('encryptionKey', config.encryptionKey);
+      sessionStorage.setItem('roomPassword', password.trim());
+      
       navigate('/room');
     } catch (error) {
       console.error('Failed to create room:', error);
@@ -34,7 +82,6 @@ export default function Index() {
   const handleJoinRoom = () => {
     const participantName = name.trim() || generateParticipantName();
     sessionStorage.setItem('participantName', participantName);
-    // User will paste the room URL which contains the credentials
     navigate('/room');
   };
 
@@ -73,18 +120,19 @@ export default function Index() {
           </div>
 
           {/* Action Card */}
-          <Card className="bg-[#1a1f2e] border-[#2a3142] max-w-md mx-auto">
+          <Card className="bg-[#1a1f2e] border-[#2a3142] max-w-2xl mx-auto">
             <CardHeader>
               <CardTitle className="text-white">Get Started</CardTitle>
               <CardDescription className="text-gray-400">
-                Create a new room or join an existing one
+                Choose how you want to create or join a room
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Name Input */}
               <div>
-                <label className="text-sm text-gray-400 mb-2 block">
+                <Label className="text-sm text-gray-400 mb-2 block">
                   Your Name (optional)
-                </label>
+                </Label>
                 <Input
                   type="text"
                   placeholder="Leave blank for random name"
@@ -93,15 +141,122 @@ export default function Index() {
                   className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
                 />
               </div>
-              <div className="flex flex-col gap-2">
-                <Button
-                  onClick={handleCreateRoom}
-                  disabled={isCreating}
-                  className="w-full bg-[#5DBEBD] hover:bg-[#4A9B9A] text-white"
-                >
-                  <MessageSquare className="w-4 h-4 mr-2" />
-                  {isCreating ? 'Creating...' : 'Create New Room'}
-                </Button>
+
+              <Tabs defaultValue="quick" className="w-full">
+                <TabsList className="grid w-full grid-cols-3 bg-[#0f1419]">
+                  <TabsTrigger value="quick" className="data-[state=active]:bg-[#5DBEBD] data-[state=active]:text-white">
+                    Quick Join
+                  </TabsTrigger>
+                  <TabsTrigger value="custom" className="data-[state=active]:bg-[#5DBEBD] data-[state=active]:text-white">
+                    Custom Room
+                  </TabsTrigger>
+                  <TabsTrigger value="private" className="data-[state=active]:bg-[#5DBEBD] data-[state=active]:text-white">
+                    Private Random
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Quick Join Tab */}
+                <TabsContent value="quick" className="space-y-4 mt-4">
+                  <div className="bg-[#0f1419] border border-[#2a3142] rounded-lg p-4">
+                    <div className="flex items-start gap-3 mb-3">
+                      <Shuffle className="w-5 h-5 text-[#5DBEBD] mt-0.5" />
+                      <div>
+                        <h3 className="text-white font-medium mb-1">Random Room Name</h3>
+                        <p className="text-sm text-gray-400">
+                          Generate a random room and share the URL. No password needed.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleQuickJoin}
+                    disabled={isCreating}
+                    className="w-full bg-[#5DBEBD] hover:bg-[#4A9B9A] text-white"
+                  >
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    {isCreating ? 'Creating...' : 'Create Room'}
+                  </Button>
+                </TabsContent>
+
+                {/* Custom Room Tab */}
+                <TabsContent value="custom" className="space-y-4 mt-4">
+                  <div className="bg-[#0f1419] border border-[#2a3142] rounded-lg p-4">
+                    <div className="flex items-start gap-3 mb-3">
+                      <Key className="w-5 h-5 text-[#5DBEBD] mt-0.5" />
+                      <div>
+                        <h3 className="text-white font-medium mb-1">Custom Room Name + Password</h3>
+                        <p className="text-sm text-gray-400">
+                          Choose your own room name. Password required to join.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-sm text-gray-400 mb-2 block">Room Name</Label>
+                    <Input
+                      type="text"
+                      placeholder="e.g., team-meeting"
+                      value={customRoomName}
+                      onChange={(e) => setCustomRoomName(e.target.value)}
+                      className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-sm text-gray-400 mb-2 block">Password</Label>
+                    <Input
+                      type="password"
+                      placeholder="Enter room password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
+                    />
+                  </div>
+                  <Button
+                    onClick={handleCustomRoom}
+                    disabled={isCreating || !customRoomName.trim() || !password.trim()}
+                    className="w-full bg-[#5DBEBD] hover:bg-[#4A9B9A] text-white"
+                  >
+                    <Lock className="w-4 h-4 mr-2" />
+                    {isCreating ? 'Creating...' : 'Create Custom Room'}
+                  </Button>
+                </TabsContent>
+
+                {/* Private Random Tab */}
+                <TabsContent value="private" className="space-y-4 mt-4">
+                  <div className="bg-[#0f1419] border border-[#2a3142] rounded-lg p-4">
+                    <div className="flex items-start gap-3 mb-3">
+                      <Shield className="w-5 h-5 text-[#5DBEBD] mt-0.5" />
+                      <div>
+                        <h3 className="text-white font-medium mb-1">Random Room + Password</h3>
+                        <p className="text-sm text-gray-400">
+                          Random room name with password protection. Share URL + password.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-sm text-gray-400 mb-2 block">Password</Label>
+                    <Input
+                      type="password"
+                      placeholder="Enter room password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
+                    />
+                  </div>
+                  <Button
+                    onClick={handlePrivateRandom}
+                    disabled={isCreating || !password.trim()}
+                    className="w-full bg-[#5DBEBD] hover:bg-[#4A9B9A] text-white"
+                  >
+                    <Shield className="w-4 h-4 mr-2" />
+                    {isCreating ? 'Creating...' : 'Create Private Room'}
+                  </Button>
+                </TabsContent>
+              </Tabs>
+
+              {/* Join Existing Room */}
+              <div className="pt-4 border-t border-[#2a3142]">
                 <Button
                   onClick={handleJoinRoom}
                   variant="outline"
