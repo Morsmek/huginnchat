@@ -156,10 +156,10 @@ export default function Index() {
                 </TabsList>
 
                 {/* Quick Join Tab */}
-                <TabsContent value="quick" className="space-y-4 mt-4">
-                  <div className="bg-[#0f1419] border border-[#2a3142] rounded-lg p-4">
-                    <div className="flex items-start gap-3 mb-3">
-                      <Shuffle className="w-5 h-5 text-[#5DBEBD] mt-0.5" />
+                <TabsContent value="quick" className="space-y-4 mt-6">
+                  <div className="bg-[#0f1419] border border-[#2a3142] rounded-lg p-5">
+                    <div className="flex items-start gap-3">
+                      <Shuffle className="w-5 h-5 text-[#5DBEBD] mt-0.5 flex-shrink-0" />
                       <div>
                         <h3 className="text-white font-medium mb-1">Random Room Name</h3>
                         <p className="text-sm text-gray-400">
@@ -179,10 +179,10 @@ export default function Index() {
                 </TabsContent>
 
                 {/* Custom Room Tab */}
-                <TabsContent value="custom" className="space-y-4 mt-4">
-                  <div className="bg-[#0f1419] border border-[#2a3142] rounded-lg p-4">
-                    <div className="flex items-start gap-3 mb-3">
-                      <Key className="w-5 h-5 text-[#5DBEBD] mt-0.5" />
+                <TabsContent value="custom" className="space-y-4 mt-6">
+                  <div className="bg-[#0f1419] border border-[#2a3142] rounded-lg p-5">
+                    <div className="flex items-start gap-3">
+                      <Key className="w-5 h-5 text-[#5DBEBD] mt-0.5 flex-shrink-0" />
                       <div>
                         <h3 className="text-white font-medium mb-1">Custom Room Name + Password</h3>
                         <p className="text-sm text-gray-400">
@@ -191,25 +191,27 @@ export default function Index() {
                       </div>
                     </div>
                   </div>
-                  <div>
-                    <Label className="text-sm text-gray-400 mb-2 block">Room Name</Label>
-                    <Input
-                      type="text"
-                      placeholder="e.g., team-meeting"
-                      value={customRoomName}
-                      onChange={(e) => setCustomRoomName(e.target.value)}
-                      className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-sm text-gray-400 mb-2 block">Password</Label>
-                    <Input
-                      type="password"
-                      placeholder="Enter room password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
-                    />
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-sm text-gray-400 mb-2 block">Room Name</Label>
+                      <Input
+                        type="text"
+                        placeholder="e.g., team-meeting"
+                        value={customRoomName}
+                        onChange={(e) => setCustomRoomName(e.target.value)}
+                        className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm text-gray-400 mb-2 block">Password</Label>
+                      <Input
+                        type="password"
+                        placeholder="Enter room password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
+                      />
+                    </div>
                   </div>
                   <Button
                     onClick={handleCustomRoom}
@@ -222,10 +224,10 @@ export default function Index() {
                 </TabsContent>
 
                 {/* Private Random Tab */}
-                <TabsContent value="private" className="space-y-4 mt-4">
-                  <div className="bg-[#0f1419] border border-[#2a3142] rounded-lg p-4">
-                    <div className="flex items-start gap-3 mb-3">
-                      <Shield className="w-5 h-5 text-[#5DBEBD] mt-0.5" />
+                <TabsContent value="private" className="space-y-4 mt-6">
+                  <div className="bg-[#0f1419] border border-[#2a3142] rounded-lg p-5">
+                    <div className="flex items-start gap-3">
+                      <Shield className="w-5 h-5 text-[#5DBEBD] mt-0.5 flex-shrink-0" />
                       <div>
                         <h3 className="text-white font-medium mb-1">Random Room + Password</h3>
                         <p className="text-sm text-gray-400">
