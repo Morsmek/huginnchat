@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Lock, Users, Zap, Eye, MessageSquare } from 'lucide-react';
+import { Shield, Lock, Zap, Eye, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { createRoom, generateRoomUrl, generateParticipantName } from '@/lib/room';
+import { createRoom, generateParticipantName } from '@/lib/room';
 
 export default function Index() {
   const navigate = useNavigate();
@@ -16,14 +16,20 @@ export default function Index() {
     try {
       const participantName = name.trim() || generateParticipantName();
       const config = await createRoom(participantName);
-      const url = generateRoomUrl(config);
       
       // Store participant info in sessionStorage
       sessionStorage.setItem('participantId', config.participantId);
       sessionStorage.setItem('participantName', participantName);
       
-      // Navigate to room
-      window.location.href = url;
+      // Set the hash with room credentials
+      const params = new URLSearchParams({
+        room: config.roomId,
+        key: config.encryptionKey,
+      });
+      
+      // Navigate to room page with hash
+      window.location.hash = params.toString();
+      navigate('/room');
     } catch (error) {
       console.error('Failed to create room:', error);
       setIsCreating(false);
