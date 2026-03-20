@@ -398,7 +398,7 @@ export default function Index() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-[#2a3142] bg-[#242a3a] py-6">
+      <footer className="border-t border-[#3a4255] bg-[#2e3548] py-6">
         <div className="container mx-auto px-4 flex items-center justify-center gap-2">
           <span className="text-[#5DBEBD] text-sm font-medium">A part of</span>
           <img src="/partner-logo.png" alt="Partner" className="h-6" />
