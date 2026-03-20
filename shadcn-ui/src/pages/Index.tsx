@@ -400,7 +400,7 @@ export default function Index() {
       {/* Footer */}
       <footer className="border-t border-[#2a3142] bg-[#1a1f2e]/50 py-6">
         <div className="container mx-auto px-4 flex items-center justify-center gap-2">
-          <span className="text-gray-500 text-sm">A part of</span>
+          <span className="text-[#5DBEBD] text-sm font-medium">A part of</span>
           <img src="/partner-logo.png" alt="Partner" className="h-6" />
         </div>
       </footer>
