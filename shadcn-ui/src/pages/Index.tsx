@@ -112,10 +112,12 @@ export default function Index() {
     <div className="min-h-screen bg-gradient-to-br from-[#0f1419] via-[#1a1f2e] to-[#0f1419] flex flex-col">
       {/* Header */}
       <header className="border-b border-[#3a4255] bg-[#2e3548]">
-        <div className="container mx-auto px-4 py-4 flex items-center gap-3 mt-[0px] mr-[0px] mb-[0px] ml-[0px] pt-[16px] pr-[16px] pb-[16px] pl-[16px] rounded-none text-[16px] font-normal text-[#020817] bg-[#00000000] opacity-100">
-          <img src="/huginn-logo.png" alt="Huginn" className="w-14 h-14 mt-[0px] mr-[0px] mb-[0px] ml-[0px] pt-[0px] pr-[0px] pb-[0px] pl-[0px] rounded-[24px] text-[16px] font-normal text-[#020817] bg-[#00000000] opacity-100" />
+        <div className="container mx-auto px-4 py-4 flex flex-col items-center gap-2 relative">
+          {/* Centered logo */}
+          <img src="/huginn-logo.png" alt="Huginn" className="w-20 h-20 rounded-[24px]" />
           <h1 className="text-2xl font-bold text-white">Huginn</h1>
-          <div className="ml-auto flex items-center gap-2">
+          {/* Zero-Knowledge badge - positioned to the right on larger screens */}
+          <div className="flex items-center gap-2 md:absolute md:right-4 md:top-1/2 md:-translate-y-1/2">
             <Lock className="w-4 h-4 text-[#5DBEBD]" />
             <span className="text-sm text-gray-400">Zero-Knowledge Chat</span>
           </div>
