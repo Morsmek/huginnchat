@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Index from './pages/Index';
 import Room from './pages/Room';
 import NotFound from './pages/NotFound';
+import CookieConsent from './components/CookieConsent';
 
 const queryClient = new QueryClient();
 
@@ -19,6 +20,7 @@ const App = () => (
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
+      <CookieConsent />
     </TooltipProvider>
   </QueryClientProvider>
 );
