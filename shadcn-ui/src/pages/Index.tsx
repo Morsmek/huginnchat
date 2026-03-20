@@ -402,7 +402,7 @@ export default function Index() {
       <footer className="border-t border-[#3a3a3a] bg-[#2a2a2a] py-6">
         <div className="container mx-auto px-4 flex items-center justify-center gap-2">
           <span className="text-[#B0B0B0] text-sm font-medium">A part of</span>
-          <img src="/partner-logo.png" alt="Partner" className="h-6" />
+          <img src="/huginn-logo.png" alt="Huginn" className="h-6" />
         </div>
       </footer>
     </div>
