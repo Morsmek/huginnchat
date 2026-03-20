@@ -111,9 +111,9 @@ export default function Index() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f1419] via-[#1a1f2e] to-[#0f1419] flex flex-col">
       {/* Header */}
-      <header className="border-b border-[#2a3142] bg-[#1a1f2e]/50 backdrop-blur-sm">
+      <header className="border-b border-[#3a4255] bg-[#2e3548]">
         <div className="container mx-auto px-4 py-4 flex items-center gap-3">
-          <img src="/huginn-logo.png" alt="Huginn" className="w-10 h-10" />
+          <img src="/huginn-logo.png" alt="Huginn" className="w-14 h-14" />
           <h1 className="text-2xl font-bold text-white">Huginn</h1>
           <div className="ml-auto flex items-center gap-2">
             <Lock className="w-4 h-4 text-[#5DBEBD]" />
