@@ -1,4 +1,4 @@
-import { Shield, Lock, Users } from 'lucide-react';
+import { Lock, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 interface SecurityStatusProps {
@@ -10,8 +10,7 @@ export default function SecurityStatus({ encrypted, participantCount }: Security
   return (
     <div className="flex items-center gap-4 px-4 py-3 bg-[#1a1a1a] border-b border-[#333333]">
       <div className="flex items-center gap-2">
-        <Shield className="w-4 h-4 text-[#B0B0B0]" />
-        <span className="text-sm text-[#CCCCCC]">Huginn</span>
+        <img src="/huginn-logo.png" alt="Huginn" className="h-6 w-auto" />
       </div>
       
       <div className="flex items-center gap-2">

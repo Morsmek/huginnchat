@@ -112,9 +112,9 @@ export default function Index() {
     <div className="min-h-screen bg-gradient-to-br from-[#0d0d0d] via-[#1a1a1a] to-[#0d0d0d] flex flex-col">
       {/* Header */}
       <header className="border-b border-[#3a3a3a] bg-[#2a2a2a]">
-        <div className="container mx-auto px-4 py-4 flex flex-col items-center gap-2 relative">
-          {/* Centered logo */}
-          <img src="/huginn-logo.png" alt="Huginn" className="w-48 h-auto" />
+        <div className="container mx-auto px-4 py-5 flex flex-col items-center gap-1 relative">
+          {/* Centered logo - the logo already contains "Huginn" text */}
+          <img src="/huginn-logo.png" alt="Huginn" className="h-16 w-auto" />
           {/* Zero-Knowledge badge */}
           <div className="flex items-center gap-2 md:absolute md:right-4 md:top-1/2 md:-translate-y-1/2">
             <Lock className="w-4 h-4 text-[#B0B0B0]" />
