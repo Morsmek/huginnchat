@@ -109,17 +109,16 @@ export default function Index() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0f1419] via-[#1a1f2e] to-[#0f1419] flex flex-col">
+    <div className="min-h-screen bg-gradient-to-br from-[#0d0d0d] via-[#1a1a1a] to-[#0d0d0d] flex flex-col">
       {/* Header */}
-      <header className="border-b border-[#3a4255] bg-[#2e3548]">
+      <header className="border-b border-[#3a3a3a] bg-[#2a2a2a]">
         <div className="container mx-auto px-4 py-4 flex flex-col items-center gap-2 relative">
           {/* Centered logo */}
-          <img src="/huginn-logo.png" alt="Huginn" className="w-20 h-20 rounded-[24px]" />
-          <h1 className="text-2xl font-bold text-white">Huginn</h1>
-          {/* Zero-Knowledge badge - positioned to the right on larger screens */}
+          <img src="/huginn-logo.png" alt="Huginn" className="w-48 h-auto" />
+          {/* Zero-Knowledge badge */}
           <div className="flex items-center gap-2 md:absolute md:right-4 md:top-1/2 md:-translate-y-1/2">
-            <Lock className="w-4 h-4 text-[#5DBEBD]" />
-            <span className="text-sm text-gray-400">Zero-Knowledge Chat</span>
+            <Lock className="w-4 h-4 text-[#B0B0B0]" />
+            <span className="text-sm text-[#999999]">Zero-Knowledge Chat</span>
           </div>
         </div>
       </header>
@@ -129,33 +128,33 @@ export default function Index() {
         <div className="max-w-4xl w-full space-y-12">
           {/* Hero */}
           <div className="text-center space-y-4">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#5DBEBD]/10 border border-[#5DBEBD]/30 mb-4">
-              <Shield className="w-4 h-4 text-[#5DBEBD]" />
-              <span className="text-sm text-[#5DBEBD] font-medium">End-to-End Encrypted</span>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#B0B0B0]/10 border border-[#B0B0B0]/30 mb-4">
+              <Shield className="w-4 h-4 text-[#B0B0B0]" />
+              <span className="text-sm text-[#C0C0C0] font-medium">End-to-End Encrypted</span>
             </div>
             <h2 className="text-5xl font-bold text-white leading-tight">
               Secure Ephemeral
               <br />
-              <span className="text-[#5DBEBD]">Group Chat</span>
+              <span className="bg-gradient-to-r from-[#888888] to-[#D0D0D0] bg-clip-text text-transparent">Group Chat</span>
             </h2>
-            <p className="text-xl text-gray-400 max-w-2xl mx-auto">
+            <p className="text-xl text-[#999999] max-w-2xl mx-auto">
               Zero-knowledge, serverless communication. Your messages are encrypted in your browser
               and destroyed after your session ends.
             </p>
           </div>
 
           {/* Action Card */}
-          <Card className="bg-[#1a1f2e] border-[#2a3142] max-w-2xl mx-auto">
+          <Card className="bg-[#1a1a1a] border-[#333333] max-w-2xl mx-auto">
             <CardHeader>
               <CardTitle className="text-white">Get Started</CardTitle>
-              <CardDescription className="text-gray-400">
+              <CardDescription className="text-[#999999]">
                 Choose how you want to create or join a room
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Name Input */}
               <div>
-                <Label className="text-sm text-gray-400 mb-2 block">
+                <Label className="text-sm text-[#999999] mb-2 block">
                   Your Name (optional)
                 </Label>
                 <Input
@@ -163,11 +162,11 @@ export default function Index() {
                   placeholder="Leave blank for random name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
+                  className="bg-[#0d0d0d] border-[#333333] text-white placeholder:text-[#555555]"
                 />
               </div>
 
-              {/* Room Type Selection - Three Separate Cards */}
+              {/* Room Type Selection */}
               <div className="space-y-4">
                 <TooltipProvider>
                   {/* Quick Join Option */}
@@ -177,31 +176,31 @@ export default function Index() {
                         onClick={() => setSelectedMode('quick')}
                         className={`w-full text-left transition-all ${
                           selectedMode === 'quick'
-                            ? 'bg-[#5DBEBD]/10 border-2 border-[#5DBEBD]'
-                            : 'bg-[#0f1419] border-2 border-[#2a3142] hover:border-[#5DBEBD]/50'
+                            ? 'bg-[#B0B0B0]/10 border-2 border-[#B0B0B0]'
+                            : 'bg-[#0d0d0d] border-2 border-[#333333] hover:border-[#B0B0B0]/50'
                         } rounded-lg p-5 cursor-pointer`}
                       >
                         <div className="flex items-center gap-4">
                           <div className={`p-3 rounded-lg ${
-                            selectedMode === 'quick' ? 'bg-[#5DBEBD]' : 'bg-[#2a3142]'
+                            selectedMode === 'quick' ? 'bg-gradient-to-br from-[#888888] to-[#B0B0B0]' : 'bg-[#333333]'
                           }`}>
                             <Shuffle className={`w-6 h-6 ${
-                              selectedMode === 'quick' ? 'text-white' : 'text-[#5DBEBD]'
+                              selectedMode === 'quick' ? 'text-white' : 'text-[#B0B0B0]'
                             }`} />
                           </div>
                           <div className="flex-1">
                             <h3 className="text-white font-semibold text-lg mb-1">Quick Join</h3>
-                            <p className="text-sm text-gray-400">
+                            <p className="text-sm text-[#999999]">
                               Random room name, shareable URL
                             </p>
                           </div>
-                          <Info className="w-5 h-5 text-gray-500" />
+                          <Info className="w-5 h-5 text-[#666666]" />
                         </div>
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs bg-[#1a1f2e] border-[#5DBEBD]">
+                    <TooltipContent side="right" className="max-w-xs bg-[#1a1a1a] border-[#B0B0B0]">
                       <p className="text-sm">
-                        <strong className="text-[#5DBEBD]">Quick Join:</strong> Generate a random room ID and share the URL. 
+                        <strong className="text-[#C0C0C0]">Quick Join:</strong> Generate a random room ID and share the URL. 
                         No password needed - the encryption key is included in the link. Perfect for quick, casual chats.
                       </p>
                     </TooltipContent>
@@ -214,31 +213,31 @@ export default function Index() {
                         onClick={() => setSelectedMode('custom')}
                         className={`w-full text-left transition-all ${
                           selectedMode === 'custom'
-                            ? 'bg-[#5DBEBD]/10 border-2 border-[#5DBEBD]'
-                            : 'bg-[#0f1419] border-2 border-[#2a3142] hover:border-[#5DBEBD]/50'
+                            ? 'bg-[#B0B0B0]/10 border-2 border-[#B0B0B0]'
+                            : 'bg-[#0d0d0d] border-2 border-[#333333] hover:border-[#B0B0B0]/50'
                         } rounded-lg p-5 cursor-pointer`}
                       >
                         <div className="flex items-center gap-4">
                           <div className={`p-3 rounded-lg ${
-                            selectedMode === 'custom' ? 'bg-[#5DBEBD]' : 'bg-[#2a3142]'
+                            selectedMode === 'custom' ? 'bg-gradient-to-br from-[#888888] to-[#B0B0B0]' : 'bg-[#333333]'
                           }`}>
                             <Key className={`w-6 h-6 ${
-                              selectedMode === 'custom' ? 'text-white' : 'text-[#5DBEBD]'
+                              selectedMode === 'custom' ? 'text-white' : 'text-[#B0B0B0]'
                             }`} />
                           </div>
                           <div className="flex-1">
                             <h3 className="text-white font-semibold text-lg mb-1">Custom Room</h3>
-                            <p className="text-sm text-gray-400">
+                            <p className="text-sm text-[#999999]">
                               Choose name + password protection
                             </p>
                           </div>
-                          <Info className="w-5 h-5 text-gray-500" />
+                          <Info className="w-5 h-5 text-[#666666]" />
                         </div>
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs bg-[#1a1f2e] border-[#5DBEBD]">
+                    <TooltipContent side="right" className="max-w-xs bg-[#1a1a1a] border-[#B0B0B0]">
                       <p className="text-sm">
-                        <strong className="text-[#5DBEBD]">Custom Room:</strong> Choose your own room name 
+                        <strong className="text-[#C0C0C0]">Custom Room:</strong> Choose your own room name 
                         (e.g., "team-meeting"). Password required to join. Great for organized, recurring meetings 
                         with an extra layer of security.
                       </p>
@@ -252,31 +251,31 @@ export default function Index() {
                         onClick={() => setSelectedMode('private')}
                         className={`w-full text-left transition-all ${
                           selectedMode === 'private'
-                            ? 'bg-[#5DBEBD]/10 border-2 border-[#5DBEBD]'
-                            : 'bg-[#0f1419] border-2 border-[#2a3142] hover:border-[#5DBEBD]/50'
+                            ? 'bg-[#B0B0B0]/10 border-2 border-[#B0B0B0]'
+                            : 'bg-[#0d0d0d] border-2 border-[#333333] hover:border-[#B0B0B0]/50'
                         } rounded-lg p-5 cursor-pointer`}
                       >
                         <div className="flex items-center gap-4">
                           <div className={`p-3 rounded-lg ${
-                            selectedMode === 'private' ? 'bg-[#5DBEBD]' : 'bg-[#2a3142]'
+                            selectedMode === 'private' ? 'bg-gradient-to-br from-[#888888] to-[#B0B0B0]' : 'bg-[#333333]'
                           }`}>
                             <Shield className={`w-6 h-6 ${
-                              selectedMode === 'private' ? 'text-white' : 'text-[#5DBEBD]'
+                              selectedMode === 'private' ? 'text-white' : 'text-[#B0B0B0]'
                             }`} />
                           </div>
                           <div className="flex-1">
                             <h3 className="text-white font-semibold text-lg mb-1">Private Random</h3>
-                            <p className="text-sm text-gray-400">
+                            <p className="text-sm text-[#999999]">
                               Random name + password required
                             </p>
                           </div>
-                          <Info className="w-5 h-5 text-gray-500" />
+                          <Info className="w-5 h-5 text-[#666666]" />
                         </div>
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs bg-[#1a1f2e] border-[#5DBEBD]">
+                    <TooltipContent side="right" className="max-w-xs bg-[#1a1a1a] border-[#B0B0B0]">
                       <p className="text-sm">
-                        <strong className="text-[#5DBEBD]">Private Random:</strong> Random room name with 
+                        <strong className="text-[#C0C0C0]">Private Random:</strong> Random room name with 
                         password protection. Share URL and password separately. Combines anonymity with security - 
                         ideal for sensitive discussions.
                       </p>
@@ -289,23 +288,23 @@ export default function Index() {
               {selectedMode === 'custom' && (
                 <div className="space-y-3 pt-2">
                   <div>
-                    <Label className="text-sm text-gray-400 mb-2 block">Room Name</Label>
+                    <Label className="text-sm text-[#999999] mb-2 block">Room Name</Label>
                     <Input
                       type="text"
                       placeholder="e.g., team-meeting"
                       value={customRoomName}
                       onChange={(e) => setCustomRoomName(e.target.value)}
-                      className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
+                      className="bg-[#0d0d0d] border-[#333333] text-white placeholder:text-[#555555]"
                     />
                   </div>
                   <div>
-                    <Label className="text-sm text-gray-400 mb-2 block">Password</Label>
+                    <Label className="text-sm text-[#999999] mb-2 block">Password</Label>
                     <Input
                       type="password"
                       placeholder="Enter room password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
+                      className="bg-[#0d0d0d] border-[#333333] text-white placeholder:text-[#555555]"
                     />
                   </div>
                 </div>
@@ -313,13 +312,13 @@ export default function Index() {
 
               {selectedMode === 'private' && (
                 <div className="pt-2">
-                  <Label className="text-sm text-gray-400 mb-2 block">Password</Label>
+                  <Label className="text-sm text-[#999999] mb-2 block">Password</Label>
                   <Input
                     type="password"
                     placeholder="Enter room password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
+                    className="bg-[#0d0d0d] border-[#333333] text-white placeholder:text-[#555555]"
                   />
                 </div>
               )}
@@ -328,18 +327,18 @@ export default function Index() {
               <Button
                 onClick={handleCreateRoom}
                 disabled={isCreating || !isFormValid()}
-                className="w-full bg-[#5DBEBD] hover:bg-[#4A9B9A] text-white"
+                className="w-full bg-gradient-to-r from-[#707070] to-[#A0A0A0] hover:from-[#808080] hover:to-[#B0B0B0] text-white font-semibold"
               >
                 <MessageSquare className="w-4 h-4 mr-2" />
                 {isCreating ? 'Creating...' : 'Create Room'}
               </Button>
 
               {/* Join Existing Room */}
-              <div className="pt-4 border-t border-[#2a3142]">
+              <div className="pt-4 border-t border-[#333333]">
                 <Button
                   onClick={handleJoinRoom}
                   variant="outline"
-                  className="w-full !bg-transparent !hover:bg-transparent border-[#5DBEBD] text-[#5DBEBD] hover:bg-[#5DBEBD]/10"
+                  className="w-full !bg-transparent border-[#B0B0B0] text-[#B0B0B0] hover:bg-[#B0B0B0]/10"
                 >
                   Join Existing Room
                 </Button>
@@ -349,38 +348,38 @@ export default function Index() {
 
           {/* Features */}
           <div className="grid md:grid-cols-3 gap-6 mt-12">
-            <Card className="bg-[#1a1f2e]/50 border-[#2a3142]">
+            <Card className="bg-[#1a1a1a]/50 border-[#333333]">
               <CardHeader>
-                <Lock className="w-8 h-8 text-[#5DBEBD] mb-2" />
+                <Lock className="w-8 h-8 text-[#B0B0B0] mb-2" />
                 <CardTitle className="text-white text-lg">AES-256 Encryption</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-gray-400 text-sm">
+                <p className="text-[#999999] text-sm">
                   Military-grade encryption. All messages are encrypted in your browser before
                   transmission.
                 </p>
               </CardContent>
             </Card>
 
-            <Card className="bg-[#1a1f2e]/50 border-[#2a3142]">
+            <Card className="bg-[#1a1a1a]/50 border-[#333333]">
               <CardHeader>
-                <Eye className="w-8 h-8 text-[#5DBEBD] mb-2" />
+                <Eye className="w-8 h-8 text-[#B0B0B0] mb-2" />
                 <CardTitle className="text-white text-lg">Zero Knowledge</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-gray-400 text-sm">
+                <p className="text-[#999999] text-sm">
                   No servers, no databases, no accounts. Your conversations are truly private.
                 </p>
               </CardContent>
             </Card>
 
-            <Card className="bg-[#1a1f2e]/50 border-[#2a3142]">
+            <Card className="bg-[#1a1a1a]/50 border-[#333333]">
               <CardHeader>
-                <Zap className="w-8 h-8 text-[#5DBEBD] mb-2" />
+                <Zap className="w-8 h-8 text-[#B0B0B0] mb-2" />
                 <CardTitle className="text-white text-lg">Ephemeral</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-gray-400 text-sm">
+                <p className="text-[#999999] text-sm">
                   Messages auto-destruct when you close your browser. No traces left behind.
                 </p>
               </CardContent>
@@ -388,10 +387,10 @@ export default function Index() {
           </div>
 
           {/* Security Notice */}
-          <div className="bg-[#5DBEBD]/5 border border-[#5DBEBD]/20 rounded-lg p-6 text-center">
-            <Shield className="w-8 h-8 text-[#5DBEBD] mx-auto mb-3" />
-            <p className="text-gray-300 text-sm">
-              <strong className="text-[#5DBEBD]">Security Notice:</strong> This application uses
+          <div className="bg-[#B0B0B0]/5 border border-[#B0B0B0]/20 rounded-lg p-6 text-center">
+            <Shield className="w-8 h-8 text-[#B0B0B0] mx-auto mb-3" />
+            <p className="text-[#CCCCCC] text-sm">
+              <strong className="text-[#D0D0D0]">Security Notice:</strong> This application uses
               WebRTC for peer-to-peer communication. All encryption happens in your browser. No
               messages are ever stored on any server.
             </p>
@@ -400,9 +399,9 @@ export default function Index() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-[#3a4255] bg-[#2e3548] py-6">
+      <footer className="border-t border-[#3a3a3a] bg-[#2a2a2a] py-6">
         <div className="container mx-auto px-4 flex items-center justify-center gap-2">
-          <span className="text-[#5DBEBD] text-sm font-medium">A part of</span>
+          <span className="text-[#B0B0B0] text-sm font-medium">A part of</span>
           <img src="/partner-logo.png" alt="Partner" className="h-6" />
         </div>
       </footer>

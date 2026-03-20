@@ -8,17 +8,17 @@ interface SecurityStatusProps {
 
 export default function SecurityStatus({ encrypted, participantCount }: SecurityStatusProps) {
   return (
-    <div className="flex items-center gap-4 px-4 py-3 bg-[#1a1f2e] border-b border-[#2a3142]">
+    <div className="flex items-center gap-4 px-4 py-3 bg-[#1a1a1a] border-b border-[#333333]">
       <div className="flex items-center gap-2">
-        <Shield className="w-4 h-4 text-[#5DBEBD]" />
-        <span className="text-sm text-gray-300">Huginn</span>
+        <Shield className="w-4 h-4 text-[#B0B0B0]" />
+        <span className="text-sm text-[#CCCCCC]">Huginn</span>
       </div>
       
       <div className="flex items-center gap-2">
         {encrypted ? (
           <>
-            <Lock className="w-4 h-4 text-[#5DBEBD]" />
-            <Badge variant="outline" className="bg-[#5DBEBD]/10 text-[#5DBEBD] border-[#5DBEBD]/30">
+            <Lock className="w-4 h-4 text-[#B0B0B0]" />
+            <Badge variant="outline" className="bg-[#B0B0B0]/10 text-[#C0C0C0] border-[#B0B0B0]/30">
               AES-256 Encrypted
             </Badge>
           </>
@@ -33,8 +33,8 @@ export default function SecurityStatus({ encrypted, participantCount }: Security
       </div>
 
       <div className="flex items-center gap-2 ml-auto">
-        <Users className="w-4 h-4 text-gray-400" />
-        <span className="text-sm text-gray-400">{participantCount} online</span>
+        <Users className="w-4 h-4 text-[#999999]" />
+        <span className="text-sm text-[#999999]">{participantCount} online</span>
       </div>
     </div>
   );

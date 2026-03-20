@@ -33,10 +33,8 @@ export default function Room() {
   }, [navigate, participantId, participantName]);
 
   const initializeRoom = async () => {
-    // First try to get from URL hash
     let config = parseRoomUrl();
     
-    // If not in URL, try sessionStorage (for newly created rooms)
     if (!config) {
       const roomId = sessionStorage.getItem('roomId');
       const encryptionKey = sessionStorage.getItem('encryptionKey');
@@ -46,7 +44,6 @@ export default function Room() {
         config = { roomId, encryptionKey };
         setIsPasswordProtected(!!storedPassword);
         
-        // Generate shareable URL
         const fullConfig: RoomConfig = {
           roomId,
           encryptionKey,
@@ -54,7 +51,6 @@ export default function Room() {
           participantName,
         };
         
-        // For password-protected rooms, don't include key in URL
         const url = storedPassword 
           ? generateRoomUrl(fullConfig, false)
           : generateRoomUrl(fullConfig, true);
@@ -63,7 +59,6 @@ export default function Room() {
         setShareableUrl(url);
       }
     } else {
-      // Room from URL - check if it needs a password
       const storedPassword = sessionStorage.getItem('roomPassword');
       setIsPasswordProtected(false);
       
@@ -77,7 +72,6 @@ export default function Room() {
     }
     
     if (!config) {
-      // Check if we have a room ID but need password
       const roomId = new URLSearchParams(window.location.hash.slice(1)).get('room');
       if (roomId) {
         setShowPasswordPrompt(true);
@@ -100,7 +94,6 @@ export default function Room() {
     }
 
     try {
-      // Derive key from password
       const encryptionKey = await deriveKeyFromPassword(roomPassword.trim(), roomId);
       const config = { roomId, encryptionKey };
       
@@ -119,7 +112,6 @@ export default function Room() {
     setRoomConfig(config);
     setIsEncrypted(true);
 
-    // Add self as participant
     setParticipants([
       {
         id: participantId,
@@ -129,7 +121,6 @@ export default function Room() {
       },
     ]);
 
-    // Simulate system message
     const welcomeMessage: Message = {
       id: crypto.randomUUID(),
       timestamp: Date.now(),
@@ -142,14 +133,12 @@ export default function Room() {
   };
 
   useEffect(() => {
-    // Auto-scroll to bottom when new messages arrive
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
 
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
       setMessages([]);
       sessionStorage.removeItem('roomId');
@@ -175,9 +164,6 @@ export default function Room() {
 
       setMessages((prev) => [...prev, message]);
       setInputMessage('');
-
-      // In a real implementation, this would be sent via WebRTC
-      // For MVP, messages are only visible to the sender
     } catch (error) {
       console.error('Failed to send message:', error);
       toast.error('Failed to send message');
@@ -209,12 +195,12 @@ export default function Room() {
   // Password prompt screen
   if (showPasswordPrompt) {
     return (
-      <div className="h-screen bg-[#0f1419] flex items-center justify-center p-4">
+      <div className="h-screen bg-[#0d0d0d] flex items-center justify-center p-4">
         <div className="max-w-md w-full space-y-6">
           <div className="text-center space-y-2">
-            <Lock className="w-12 h-12 text-[#5DBEBD] mx-auto" />
+            <Lock className="w-12 h-12 text-[#B0B0B0] mx-auto" />
             <h2 className="text-2xl font-bold text-white">Password Required</h2>
-            <p className="text-gray-400">This room is password-protected. Enter the password to join.</p>
+            <p className="text-[#999999]">This room is password-protected. Enter the password to join.</p>
           </div>
           
           <div className="space-y-4">
@@ -224,20 +210,20 @@ export default function Room() {
               value={roomPassword}
               onChange={(e) => setRoomPassword(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handlePasswordSubmit()}
-              className="bg-[#1a1f2e] border-[#2a3142] text-white placeholder:text-gray-600"
+              className="bg-[#1a1a1a] border-[#333333] text-white placeholder:text-[#555555]"
             />
             <div className="flex gap-2">
               <Button
                 onClick={handlePasswordSubmit}
                 disabled={!roomPassword.trim()}
-                className="flex-1 bg-[#5DBEBD] hover:bg-[#4A9B9A] text-white"
+                className="flex-1 bg-gradient-to-r from-[#707070] to-[#A0A0A0] hover:from-[#808080] hover:to-[#B0B0B0] text-white"
               >
                 Join Room
               </Button>
               <Button
                 onClick={() => navigate('/')}
                 variant="outline"
-                className="!bg-transparent !hover:bg-transparent border-[#2a3142] text-gray-400"
+                className="!bg-transparent border-[#333333] text-[#999999]"
               >
                 Cancel
               </Button>
@@ -253,7 +239,7 @@ export default function Room() {
   }
 
   return (
-    <div className="h-screen bg-[#0f1419] flex flex-col">
+    <div className="h-screen bg-[#0d0d0d] flex flex-col">
       {/* Security Status Bar */}
       <SecurityStatus encrypted={isEncrypted} participantCount={participants.length} />
 
@@ -262,7 +248,7 @@ export default function Room() {
         {/* Chat Area */}
         <div className="flex-1 flex flex-col">
           {/* Info Banner */}
-          <Alert className="m-4 bg-[#5DBEBD]/10 border-[#5DBEBD]/30 text-[#5DBEBD]">
+          <Alert className="m-4 bg-[#B0B0B0]/10 border-[#B0B0B0]/30 text-[#C0C0C0]">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription className="flex items-center justify-between">
               <div className="flex flex-col gap-1">
@@ -270,7 +256,7 @@ export default function Room() {
                   Room: {roomConfig.roomId}
                   {isPasswordProtected && <Lock className="w-3 h-3 inline ml-1" />}
                 </span>
-                <span className="text-xs text-[#5DBEBD]/80">
+                <span className="text-xs text-[#B0B0B0]/80">
                   {isPasswordProtected 
                     ? 'Share URL and password to invite others'
                     : 'Share this URL to invite others'}
@@ -280,7 +266,7 @@ export default function Room() {
                 size="sm"
                 variant="outline"
                 onClick={handleCopyRoomUrl}
-                className="!bg-transparent !hover:bg-transparent border-[#5DBEBD] text-[#5DBEBD] ml-4"
+                className="!bg-transparent border-[#B0B0B0] text-[#B0B0B0] ml-4"
               >
                 <Copy className="w-3 h-3 mr-1" />
                 Copy {isPasswordProtected ? 'URL + Password' : 'URL'}
@@ -302,7 +288,7 @@ export default function Room() {
           </ScrollArea>
 
           {/* Message Input */}
-          <div className="p-4 border-t border-[#2a3142] bg-[#1a1f2e]">
+          <div className="p-4 border-t border-[#333333] bg-[#1a1a1a]">
             <div className="flex gap-2">
               <Input
                 type="text"
@@ -310,19 +296,19 @@ export default function Room() {
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                className="flex-1 bg-[#0f1419] border-[#2a3142] text-white placeholder:text-gray-600"
+                className="flex-1 bg-[#0d0d0d] border-[#333333] text-white placeholder:text-[#555555]"
               />
               <Button
                 onClick={handleSendMessage}
                 disabled={!inputMessage.trim()}
-                className="bg-[#5DBEBD] hover:bg-[#4A9B9A] text-white"
+                className="bg-gradient-to-r from-[#707070] to-[#A0A0A0] hover:from-[#808080] hover:to-[#B0B0B0] text-white"
               >
                 <Send className="w-4 h-4" />
               </Button>
               <Button
                 onClick={handleLeaveRoom}
                 variant="outline"
-                className="!bg-transparent !hover:bg-transparent border-red-500 text-red-500 hover:bg-red-500/10"
+                className="!bg-transparent border-red-500 text-red-500 hover:bg-red-500/10"
               >
                 <LogOut className="w-4 h-4" />
               </Button>
