@@ -1,10 +1,18 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Copy, LogOut, AlertCircle, Lock, Link, UserPlus, Check } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import {
+  Send,
+  Copy,
+  LogOut,
+  Lock,
+  Link,
+  UserPlus,
+  Check,
+  ChevronRight,
+  X,
+} from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -17,17 +25,93 @@ import SecurityStatus from '@/components/SecurityStatus';
 import ChatMessage from '@/components/ChatMessage';
 import ParticipantList from '@/components/ParticipantList';
 import { parseRoomUrl, clearRoomUrl, generateRoomUrl } from '@/lib/room';
-import { encryptMessage, decryptMessage, generateRoomId, deriveKeyFromPassword } from '@/lib/crypto';
+import {
+  encryptMessage,
+  decryptMessage,
+  generateRoomId,
+  deriveKeyFromPassword,
+} from '@/lib/crypto';
 import { WebRTCManager } from '@/lib/webrtc';
 import type { Message, Participant, RoomConfig, WebRTCMessage } from '@/lib/types';
+
+function Btn({
+  onClick,
+  disabled = false,
+  children,
+  variant = 'primary',
+  small = false,
+  fullWidth = false,
+}: {
+  onClick?: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  small?: boolean;
+  fullWidth?: boolean;
+}) {
+  const base: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '6px',
+    borderRadius: 'var(--radius-lg)',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 600,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    transition: 'all var(--transition)',
+    border: 'none',
+    fontSize: small ? 'var(--text-xs)' : 'var(--text-sm)',
+    padding: small ? '0.35rem 0.75rem' : '0.55rem 1.1rem',
+    width: fullWidth ? '100%' : undefined,
+    opacity: disabled ? 0.45 : 1,
+  };
+
+  const variants: Record<string, React.CSSProperties> = {
+    primary: {
+      background: 'var(--accent)',
+      color: 'var(--accent-on)',
+    },
+    secondary: {
+      background: 'var(--surface-offset)',
+      color: 'var(--text-muted)',
+      border: '1px solid var(--border)',
+    },
+    ghost: {
+      background: 'transparent',
+      color: 'var(--text-muted)',
+      border: '1px solid var(--border)',
+    },
+    danger: {
+      background: 'transparent',
+      color: 'var(--error)',
+      border: '1px solid rgba(204,68,68,0.35)',
+    },
+  };
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{ ...base, ...variants[variant] }}
+    >
+      {children}
+    </button>
+  );
+}
 
 export default function Room() {
   const navigate = useNavigate();
 
-  // Core state
-  const [roomConfig, setRoomConfig] = useState<{ roomId: string; encryptionKey: string } | null>(null);
-  const [participantId] = useState(() => sessionStorage.getItem('participantId') || generateRoomId());
-  const [participantName] = useState(() => sessionStorage.getItem('participantName') || 'Anonymous');
+  const [roomConfig, setRoomConfig] = useState<{
+    roomId: string;
+    encryptionKey: string;
+  } | null>(null);
+  const [participantId] = useState(
+    () => sessionStorage.getItem('participantId') || generateRoomId(),
+  );
+  const [participantName] = useState(
+    () => sessionStorage.getItem('participantName') || 'Anonymous',
+  );
   const [messages, setMessages] = useState<Message[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [inputMessage, setInputMessage] = useState('');
@@ -35,34 +119,38 @@ export default function Room() {
   const [shareableUrl, setShareableUrl] = useState('');
   const [isPasswordProtected, setIsPasswordProtected] = useState(false);
 
-  // Password prompt
+  const [showParticipants, setShowParticipants] = useState(false);
+
+  // password prompt
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
   const [roomPassword, setRoomPassword] = useState('');
 
-  // Manual pairing dialog
+  // manual pairing dialog
   const [showPairDialog, setShowPairDialog] = useState(false);
   const [pairMode, setPairMode] = useState<'generate' | 'accept'>('generate');
   const [generatedOffer, setGeneratedOffer] = useState('');
   const [pastedOffer, setPastedOffer] = useState('');
   const [generatedAnswer, setGeneratedAnswer] = useState('');
   const [pastedAnswer, setPastedAnswer] = useState('');
-  const [pairStep, setPairStep] = useState<'start' | 'waiting-answer' | 'done'>('start');
+  const [pairStep, setPairStep] = useState<'start' | 'waiting-answer' | 'done'>(
+    'start',
+  );
   const [copied, setCopied] = useState(false);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const rtcRef = useRef<WebRTCManager | null>(null);
   const encKeyRef = useRef<string>('');
 
-  // ── Initialise room ──────────────────────────────────────────────────────
-
   useEffect(() => {
     initializeRoom();
+
     return () => {
       rtcRef.current?.disconnect();
-      sessionStorage.removeItem('roomId');
-      sessionStorage.removeItem('encryptionKey');
-      sessionStorage.removeItem('roomPassword');
+      ['roomId', 'encryptionKey', 'roomPassword'].forEach((k) =>
+        sessionStorage.removeItem(k),
+      );
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const initializeRoom = async () => {
@@ -72,22 +160,42 @@ export default function Room() {
       const roomId = sessionStorage.getItem('roomId');
       const encryptionKey = sessionStorage.getItem('encryptionKey');
       const storedPw = sessionStorage.getItem('roomPassword');
+
       if (roomId && encryptionKey) {
         config = { roomId, encryptionKey };
         setIsPasswordProtected(!!storedPw);
-        const fullConfig: RoomConfig = { roomId, encryptionKey, participantId, participantName };
-        const url = storedPw ? generateRoomUrl(fullConfig, false) : generateRoomUrl(fullConfig, true);
+
+        const fullConfig: RoomConfig = {
+          roomId,
+          encryptionKey,
+          participantId,
+          participantName,
+        };
+        const url = storedPw
+          ? generateRoomUrl(fullConfig, false)
+          : generateRoomUrl(fullConfig, true);
+
         window.history.replaceState(null, '', url);
         setShareableUrl(url);
       }
     } else {
-      const fullConfig: RoomConfig = { roomId: config.roomId, encryptionKey: config.encryptionKey, participantId, participantName };
+      const fullConfig: RoomConfig = {
+        roomId: config.roomId,
+        encryptionKey: config.encryptionKey,
+        participantId,
+        participantName,
+      };
       setShareableUrl(generateRoomUrl(fullConfig, true));
     }
 
     if (!config) {
-      const roomId = new URLSearchParams(window.location.hash.slice(1)).get('room');
-      if (roomId) { setShowPasswordPrompt(true); return; }
+      const roomId = new URLSearchParams(
+        window.location.hash.slice(1),
+      ).get('room');
+      if (roomId) {
+        setShowPasswordPrompt(true);
+        return;
+      }
       toast.error('Invalid room URL');
       navigate('/');
       return;
@@ -97,10 +205,19 @@ export default function Room() {
   };
 
   const handlePasswordSubmit = async () => {
-    const roomId = new URLSearchParams(window.location.hash.slice(1)).get('room');
-    if (!roomId || !roomPassword.trim()) { toast.error('Please enter a password'); return; }
+    const roomId = new URLSearchParams(
+      window.location.hash.slice(1),
+    ).get('room');
+    if (!roomId || !roomPassword.trim()) {
+      toast.error('Please enter a password');
+      return;
+    }
+
     try {
-      const encryptionKey = await deriveKeyFromPassword(roomPassword.trim(), roomId);
+      const encryptionKey = await deriveKeyFromPassword(
+        roomPassword.trim(),
+        roomId,
+      );
       sessionStorage.setItem('roomPassword', roomPassword.trim());
       setShowPasswordPrompt(false);
       setIsPasswordProtected(true);
@@ -115,15 +232,25 @@ export default function Room() {
     encKeyRef.current = config.encryptionKey;
     setIsEncrypted(true);
 
-    // Init WebRTC manager (zero-knowledge: local BroadcastChannel only by default)
     const rtc = new WebRTCManager(config.roomId, participantId, participantName);
     rtcRef.current = rtc;
 
     rtc.onMessage(async (fromId, msg: WebRTCMessage) => {
       if (msg.type === 'message') {
-        const data = msg.data as { content: string; iv: string; senderName: string; id: string; timestamp: number };
+        const data = msg.data as {
+          content: string;
+          iv: string;
+          senderName: string;
+          id: string;
+          timestamp: number;
+        };
+
         try {
-          const plain = await decryptMessage({ content: data.content, iv: data.iv }, encKeyRef.current);
+          const plain = await decryptMessage(
+            { content: data.content, iv: data.iv },
+            encKeyRef.current,
+          );
+
           const message: Message = {
             id: data.id,
             timestamp: data.timestamp,
@@ -132,64 +259,84 @@ export default function Room() {
             content: plain,
             iv: data.iv,
           };
-          setMessages(prev => [...prev, message]);
+          setMessages((prev) => [...prev, message]);
         } catch {
           console.error('Decryption failed');
         }
       } else if (msg.type === 'participant-join') {
         const d = msg.data as { id: string; name: string };
         addParticipant(d.id, d.name);
-        // Respond with our own info
-        rtc.broadcast({ type: 'participant-list', data: { id: participantId, name: participantName } });
+        rtc.broadcast({
+          type: 'participant-list',
+          data: { id: participantId, name: participantName },
+        });
       } else if (msg.type === 'participant-list') {
         const d = msg.data as { id: string; name: string };
         addParticipant(d.id, d.name);
       } else if (msg.type === 'participant-leave') {
         const d = msg.data as { id: string };
-        setParticipants(prev => prev.filter(p => p.id !== d.id));
+        setParticipants((prev) => prev.filter((p) => p.id !== d.id));
       }
     });
 
     rtc.onConnectionChange((fromId, connected, name) => {
       if (connected) {
         addParticipant(fromId, name || 'Peer');
-        // Announce ourselves
-        rtc.broadcast({ type: 'participant-join', data: { id: participantId, name: participantName } });
+        rtc.broadcast({
+          type: 'participant-join',
+          data: { id: participantId, name: participantName },
+        });
       } else {
-        setParticipants(prev => prev.map(p => p.id === fromId ? { ...p, connected: false } : p));
+        setParticipants((prev) =>
+          prev.map((p) =>
+            p.id === fromId ? { ...p, connected: false } : p,
+          ),
+        );
       }
     });
 
     rtc.start();
 
-    setParticipants([{ id: participantId, name: participantName, connected: true, joinedAt: Date.now() }]);
-    setMessages([{
-      id: crypto.randomUUID(),
-      timestamp: Date.now(),
-      sender: 'system',
-      senderName: 'System',
-      content: `Welcome, ${participantName}! 🔒 Messages are AES-256 encrypted in your browser and never leave it unencrypted. Open this URL in another tab to test locally, or use "Add Peer" to connect a second device.`,
-      iv: '',
-    }]);
+    setParticipants([
+      {
+        id: participantId,
+        name: participantName,
+        connected: true,
+        joinedAt: Date.now(),
+      },
+    ]);
+
+    setMessages([
+      {
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        sender: 'system',
+        senderName: 'System',
+        content: `Welcome, ${participantName}. All messages are AES-256-GCM encrypted in your browser — nothing is stored or transmitted in plaintext.`,
+        iv: '',
+      },
+    ]);
   };
 
   const addParticipant = (id: string, name: string) => {
-    setParticipants(prev => {
-      if (prev.find(p => p.id === id)) return prev;
-      return [...prev, { id, name, connected: true, joinedAt: Date.now() }];
+    setParticipants((prev) => {
+      if (prev.find((p) => p.id === id)) return prev;
+      return [
+        ...prev,
+        { id, name, connected: true, joinedAt: Date.now() },
+      ];
     });
   };
 
-  // ── Auto-scroll ──────────────────────────────────────────────────────────
-
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
-
-  // ── Send message ─────────────────────────────────────────────────────────
 
   const handleSendMessage = useCallback(async () => {
     if (!inputMessage.trim() || !roomConfig) return;
+
     const rtc = rtcRef.current;
     const text = inputMessage.trim();
     setInputMessage('');
@@ -199,46 +346,62 @@ export default function Room() {
       const id = crypto.randomUUID();
       const timestamp = Date.now();
 
-      // Add own message locally
-      setMessages(prev => [...prev, {
-        id, timestamp,
-        sender: participantId,
-        senderName: participantName,
-        content: text,
-        iv: encrypted.iv,
-      }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id,
+          timestamp,
+          sender: participantId,
+          senderName: participantName,
+          content: text,
+          iv: encrypted.iv,
+        },
+      ]);
 
-      // Broadcast encrypted payload to peers
       rtc?.broadcast({
         type: 'message',
-        data: { id, timestamp, content: encrypted.content, iv: encrypted.iv, senderName: participantName },
+        data: {
+          id,
+          timestamp,
+          content: encrypted.content,
+          iv: encrypted.iv,
+          senderName: participantName,
+        },
       });
     } catch {
       toast.error('Failed to encrypt message');
     }
   }, [inputMessage, roomConfig, participantId, participantName]);
 
-  // ── Copy room URL ────────────────────────────────────────────────────────
-
   const handleCopyRoomUrl = () => {
     const password = sessionStorage.getItem('roomPassword');
-    const text = password ? `${shareableUrl}\n\nPassword: ${password}` : (shareableUrl || window.location.href);
-    navigator.clipboard.writeText(text);
-    toast.success(password ? 'URL + password copied' : 'Room URL copied');
-  };
+    const text = password
+      ? `${shareableUrl}\n\nPassword: ${password}`
+      : shareableUrl || window.location.href;
 
-  // ── Leave room ───────────────────────────────────────────────────────────
+    navigator.clipboard.writeText(text);
+    toast.success(
+      password ? 'URL + password copied' : 'Room URL copied',
+    );
+  };
 
   const handleLeaveRoom = () => {
-    if (!confirm('Leave room? All messages will be destroyed.')) return;
-    rtcRef.current?.broadcast({ type: 'participant-leave', data: { id: participantId } });
+    if (
+      !window.confirm('Leave this room? All messages will be destroyed.')
+    )
+      return;
+
+    rtcRef.current?.broadcast({
+      type: 'participant-leave',
+      data: { id: participantId },
+    });
     rtcRef.current?.disconnect();
     clearRoomUrl();
-    ['participantId','roomId','encryptionKey','roomPassword'].forEach(k => sessionStorage.removeItem(k));
+    ['participantId', 'roomId', 'encryptionKey', 'roomPassword'].forEach(
+      (k) => sessionStorage.removeItem(k),
+    );
     navigate('/');
   };
-
-  // ── Manual pairing ────────────────────────────────────────────────────────
 
   const handleOpenPairDialog = () => {
     setShowPairDialog(true);
@@ -253,11 +416,12 @@ export default function Room() {
   const handleGenerateOffer = async () => {
     const rtc = rtcRef.current;
     if (!rtc) return;
+
     try {
       const offer = await rtc.generateManualOffer();
       setGeneratedOffer(offer);
       setPairStep('waiting-answer');
-    } catch (e) {
+    } catch {
       toast.error('Failed to generate offer');
     }
   };
@@ -265,12 +429,13 @@ export default function Room() {
   const handleAcceptOffer = async () => {
     const rtc = rtcRef.current;
     if (!rtc || !pastedOffer.trim()) return;
+
     try {
       const answer = await rtc.acceptManualOffer(pastedOffer.trim());
       setGeneratedAnswer(answer);
       setPairStep('done');
-      toast.success('Connection initiated — share the answer with the other person');
-    } catch (e) {
+      toast.success('Share the answer code');
+    } catch {
       toast.error('Invalid offer code');
     }
   };
@@ -278,11 +443,12 @@ export default function Room() {
   const handleAcceptAnswer = async () => {
     const rtc = rtcRef.current;
     if (!rtc || !pastedAnswer.trim()) return;
+
     try {
       await rtc.acceptManualAnswer(pastedAnswer.trim());
       setShowPairDialog(false);
-      toast.success('Peer connection established!');
-    } catch (e) {
+      toast.success('Peer connected!');
+    } catch {
       toast.error('Invalid answer code');
     }
   };
@@ -293,35 +459,104 @@ export default function Room() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // ── Password screen ───────────────────────────────────────────────────────
+  const monoArea: React.CSSProperties = {
+    width: '100%',
+    height: '6rem',
+    padding: '0.75rem',
+    fontFamily: 'monospace',
+    resize: 'none',
+    background: 'var(--surface-2)',
+    border: '1px solid var(--border)',
+    color: 'var(--text-muted)',
+    fontSize: '0.65rem',
+    borderRadius: 'var(--radius-xl)',
+    outline: 'none',
+  };
 
   if (showPasswordPrompt) {
     return (
-      <div className="h-screen bg-[#0d0d0d] flex items-center justify-center p-4">
-        <div className="max-w-md w-full space-y-6">
-          <div className="text-center space-y-2">
-            <Lock className="w-12 h-12 text-[#B0B0B0] mx-auto" />
-            <h2 className="text-2xl font-bold text-white">Password Required</h2>
-            <p className="text-[#999999]">This room is password-protected.</p>
-          </div>
-          <div className="space-y-4">
+      <div
+        className="h-screen flex items-center justify-center p-4"
+        style={{
+          background: 'var(--bg)',
+          fontFamily: 'var(--font-body)',
+        }}
+      >
+        <div className="w-full max-w-sm fade-up">
+          <div
+            className="rounded-2xl p-8"
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              boxShadow: 'var(--shadow-lg)',
+            }}
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{
+                  background: 'var(--accent-subtle)',
+                  border: '1px solid rgba(212,135,10,0.3)',
+                }}
+              >
+                <Lock
+                  size={18}
+                  style={{ color: 'var(--accent)' }}
+                />
+              </div>
+              <div>
+                <h2
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 'var(--text-lg)',
+                    fontWeight: 800,
+                    color: 'var(--text)',
+                  }}
+                >
+                  Password required
+                </h2>
+                <p
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  This room is password-protected
+                </p>
+              </div>
+            </div>
             <Input
               type="password"
               placeholder="Enter room password"
               value={roomPassword}
-              onChange={e => setRoomPassword(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handlePasswordSubmit()}
-              className="bg-[#1a1a1a] border-[#333333] text-white placeholder:text-[#555555]"
+              onChange={(e) => setRoomPassword(e.target.value)}
+              onKeyDown={(e) =>
+                e.key === 'Enter' && handlePasswordSubmit()
+              }
+              className="mb-4 w-full"
+              style={{
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border)',
+                color: 'var(--text)',
+                borderRadius: 'var(--radius-md)',
+                padding: '0.6rem 0.85rem',
+                fontSize: 'var(--text-sm)',
+              }}
             />
             <div className="flex gap-2">
-              <Button onClick={handlePasswordSubmit} disabled={!roomPassword.trim()}
-                className="flex-1 bg-gradient-to-r from-[#707070] to-[#A0A0A0] hover:from-[#808080] hover:to-[#B0B0B0] text-white">
-                Join Room
-              </Button>
-              <Button onClick={() => navigate('/')} variant="outline"
-                className="!bg-transparent border-[#333333] text-[#999999]">
+              <Btn
+                onClick={handlePasswordSubmit}
+                disabled={!roomPassword.trim()}
+                fullWidth
+              >
+                Join room <ChevronRight size={14} />
+              </Btn>
+              <Btn
+                onClick={() => navigate('/')}
+                variant="ghost"
+              >
                 Cancel
-              </Button>
+              </Btn>
             </div>
           </div>
         </div>
@@ -332,180 +567,465 @@ export default function Room() {
   if (!roomConfig) return null;
 
   return (
-    <div className="h-screen bg-[#0d0d0d] flex flex-col">
-      <SecurityStatus encrypted={isEncrypted} participantCount={participants.filter(p => p.connected).length} />
+    <div
+      className="h-screen flex flex-col"
+      style={{
+        background: 'var(--bg)',
+        fontFamily: 'var(--font-body)',
+      }}
+    >
+      <SecurityStatus
+        encrypted={isEncrypted}
+        participantCount={participants.filter((p) => p.connected).length}
+        roomId={roomConfig.roomId}
+        isPasswordProtected={isPasswordProtected}
+      />
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Chat */}
+        {/* Chat column */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Info banner */}
-          <Alert className="m-4 mb-0 bg-[#B0B0B0]/10 border-[#B0B0B0]/30 text-[#C0C0C0]">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium">
-                  Room: <span className="font-mono text-xs">{roomConfig.roomId}</span>
-                  {isPasswordProtected && <Lock className="w-3 h-3 inline ml-1" />}
+          {/* room info bar */}
+          <div
+            className="flex items-center gap-3 px-4 py-2.5 flex-shrink-0"
+            style={{
+              background: 'var(--surface)',
+              borderBottom: '1px solid var(--divider)',
+            }}
+          >
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span
+                  className="font-mono truncate"
+                  title={roomConfig.roomId}
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--text-faint)',
+                  }}
+                >
+                  {roomConfig.roomId}
                 </span>
-                <span className="text-xs text-[#888888]">
-                  {isPasswordProtected ? 'Share URL + password separately' : 'Share URL to invite (key is in the fragment)'}
-                </span>
+                {isPasswordProtected && (
+                  <Lock
+                    size={10}
+                    style={{
+                      color: 'var(--accent)',
+                      flexShrink: 0,
+                    }}
+                    aria-label="Password protected"
+                  />
+                )}
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={handleCopyRoomUrl}
-                  className="!bg-transparent border-[#B0B0B0]/40 text-[#B0B0B0] text-xs">
-                  <Link className="w-3 h-3 mr-1" />
+              <p
+                style={{
+                  fontSize: '0.65rem',
+                  color: 'var(--text-faint)',
+                }}
+              >
+                {isPasswordProtected
+                  ? 'Share URL + password separately'
+                  : 'Key is in the URL fragment — never stored'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Btn
+                onClick={handleCopyRoomUrl}
+                variant="ghost"
+                small
+              >
+                <Link size={11} />
+                <span className="hidden sm:inline">
                   Copy URL
-                </Button>
-                <Button size="sm" variant="outline" onClick={handleOpenPairDialog}
-                  className="!bg-transparent border-[#B0B0B0]/40 text-[#B0B0B0] text-xs">
-                  <UserPlus className="w-3 h-3 mr-1" />
-                  Add Peer
-                </Button>
-              </div>
-            </AlertDescription>
-          </Alert>
+                </span>
+              </Btn>
+              <Btn
+                onClick={handleOpenPairDialog}
+                variant="ghost"
+                small
+              >
+                <UserPlus size={11} />
+                <span className="hidden sm:inline">
+                  Add peer
+                </span>
+              </Btn>
+              <Btn
+                onClick={handleLeaveRoom}
+                variant="danger"
+                small
+              >
+                <LogOut size={11} />
+              </Btn>
+            </div>
+          </div>
 
-          {/* Messages */}
-          <ScrollArea className="flex-1 px-4 mt-4" ref={scrollRef}>
-            <div className="py-2 space-y-1">
-              {messages.map(msg => (
-                <ChatMessage key={msg.id} message={msg} isOwn={msg.sender === participantId} />
+          {/* messages */}
+          <ScrollArea className="flex-1">
+            <div className="py-4 space-y-0.5">
+              {messages.map((msg) => (
+                <ChatMessage
+                  key={msg.id}
+                  message={msg}
+                  isOwn={msg.sender === participantId}
+                />
               ))}
+              <div ref={messagesEndRef} />
             </div>
           </ScrollArea>
 
-          {/* Input */}
-          <div className="p-4 border-t border-[#333333] bg-[#1a1a1a]">
-            <div className="flex gap-2">
-              <Input
-                type="text"
-                placeholder="Type an encrypted message…"
-                value={inputMessage}
-                onChange={e => setInputMessage(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-                className="flex-1 bg-[#0d0d0d] border-[#333333] text-white placeholder:text-[#555555]"
-              />
-              <Button onClick={handleSendMessage} disabled={!inputMessage.trim()}
-                className="bg-gradient-to-r from-[#707070] to-[#A0A0A0] hover:from-[#808080] hover:to-[#B0B0B0] text-white">
-                <Send className="w-4 h-4" />
-              </Button>
-              <Button onClick={handleLeaveRoom} variant="outline"
-                className="!bg-transparent border-red-500/50 text-red-500 hover:bg-red-500/10">
-                <LogOut className="w-4 h-4" />
-              </Button>
-            </div>
+          {/* input bar */}
+          <div
+            className="flex items-center gap-2 px-4 py-3 flex-shrink-0"
+            style={{
+              background: 'var(--surface)',
+              borderTop: '1px solid var(--divider)',
+            }}
+          >
+            <Input
+              type="text"
+              placeholder="Write an encrypted message…"
+              value={inputMessage}
+              onChange={(e) => setInputMessage(e.target.value)}
+              onKeyDown={(e) =>
+                e.key === 'Enter' &&
+                !e.shiftKey &&
+                handleSendMessage()
+              }
+              className="flex-1"
+              aria-label="Message input"
+              style={{
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border)',
+                color: 'var(--text)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '0.6rem 1rem',
+                fontSize: 'var(--text-sm)',
+              }}
+            />
+            <button
+              onClick={handleSendMessage}
+              disabled={!inputMessage.trim()}
+              aria-label="Send message"
+              className="w-10 h-10 flex items-center justify-center rounded-xl flex-shrink-0"
+              style={{
+                background: inputMessage.trim()
+                  ? 'var(--accent)'
+                  : 'var(--surface-dynamic)',
+                color: inputMessage.trim()
+                  ? 'var(--accent-on)'
+                  : 'var(--text-faint)',
+                cursor: inputMessage.trim()
+                  ? 'pointer'
+                  : 'not-allowed',
+                transition: 'all var(--transition)',
+                border: 'none',
+              }}
+            >
+              <Send size={15} aria-hidden="true" />
+            </button>
+            <button
+              onClick={() =>
+                setShowParticipants((v) => !v)
+              }
+              aria-label="Toggle participants"
+              className="sm:hidden w-10 h-10 flex items-center justify-center rounded-xl flex-shrink-0"
+              style={{
+                background: 'var(--surface-offset)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              <span
+                style={{
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                }}
+              >
+                {
+                  participants.filter((p) => p.connected)
+                    .length
+                }
+              </span>
+            </button>
           </div>
         </div>
 
-        {/* Participant list */}
-        <ParticipantList participants={participants} currentUserId={participantId} />
+        {/* participants */}
+        <div
+          className={`flex-shrink-0 ${
+            showParticipants ? 'block' : 'hidden sm:block'
+          }`}
+        >
+          <ParticipantList
+            participants={participants}
+            currentUserId={participantId}
+          />
+        </div>
       </div>
 
-      {/* Manual peer pairing dialog */}
-      <Dialog open={showPairDialog} onOpenChange={setShowPairDialog}>
-        <DialogContent className="bg-[#1a1a1a] border-[#333333] text-white max-w-lg">
+      {/* pair dialog */}
+      <Dialog
+        open={showPairDialog}
+        onOpenChange={setShowPairDialog}
+      >
+        <DialogContent
+          className="max-w-lg"
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            boxShadow: 'var(--shadow-xl)',
+            borderRadius: 'var(--radius-2xl)',
+            fontFamily: 'var(--font-body)',
+          }}
+        >
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
-              <UserPlus className="w-5 h-5 text-[#B0B0B0]" />
-              Add Peer (Cross-Device)
+            <DialogTitle
+              className="flex items-center gap-2"
+              style={{
+                color: 'var(--text)',
+                fontFamily: 'var(--font-display)',
+                fontWeight: 800,
+              }}
+            >
+              <UserPlus
+                size={16}
+                style={{ color: 'var(--accent)' }}
+              />
+              Add Peer
             </DialogTitle>
-            <DialogDescription className="text-[#888888]">
-              Zero-knowledge manual handshake — no server involved. Copy/paste codes between devices.
+            <DialogDescription
+              style={{
+                color: 'var(--text-muted)',
+                fontSize: 'var(--text-xs)',
+              }}
+            >
+              Zero-knowledge manual handshake — no server
+              involved.
             </DialogDescription>
           </DialogHeader>
 
-          {/* Mode tabs */}
-          <div className="flex gap-2 mb-4">
-            <button onClick={() => { setPairMode('generate'); setPairStep('start'); }}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${pairMode === 'generate' ? 'bg-[#B0B0B0]/20 text-white border border-[#B0B0B0]/40' : 'text-[#888888] hover:text-white'}`}>
-              I want to invite
-            </button>
-            <button onClick={() => { setPairMode('accept'); setPairStep('start'); }}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${pairMode === 'accept' ? 'bg-[#B0B0B0]/20 text-white border border-[#B0B0B0]/40' : 'text-[#888888] hover:text-white'}`}>
-              I received a code
-            </button>
+          <div className="flex gap-2 my-2">
+            {(['generate', 'accept'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => {
+                  setPairMode(m);
+                  setPairStep('start');
+                }}
+                className="flex-1 py-2 rounded-lg font-medium"
+                style={{
+                  background:
+                    pairMode === m
+                      ? 'var(--accent-subtle)'
+                      : 'var(--surface-offset)',
+                  border: `1px solid ${
+                    pairMode === m
+                      ? 'rgba(212,135,10,0.4)'
+                      : 'transparent'
+                  }`,
+                  color:
+                    pairMode === m
+                      ? 'var(--text)'
+                      : 'var(--text-muted)',
+                  cursor: 'pointer',
+                  transition: 'all var(--transition)',
+                  fontSize: 'var(--text-xs)',
+                }}
+              >
+                {m === 'generate'
+                  ? 'I want to invite'
+                  : 'I received a code'}
+              </button>
+            ))}
           </div>
 
-          {/* GENERATE OFFER flow */}
           {pairMode === 'generate' && (
             <div className="space-y-4">
               {pairStep === 'start' && (
                 <>
-                  <p className="text-sm text-[#999999]">
-                    Generate a connection code, share it with the other person. They'll send back an answer code.
+                  <p
+                    style={{
+                      fontSize: 'var(--text-xs)',
+                      color: 'var(--text-muted)',
+                      marginBottom: '0.5rem',
+                    }}
+                  >
+                    Generate a connection code and share it.
+                    They'll send back an answer to complete
+                    the handshake.
                   </p>
-                  <Button onClick={handleGenerateOffer}
-                    className="w-full bg-gradient-to-r from-[#707070] to-[#A0A0A0] text-white">
-                    Generate Connection Code
-                  </Button>
+                  <Btn
+                    onClick={handleGenerateOffer}
+                    fullWidth
+                  >
+                    Generate connection code
+                  </Btn>
                 </>
               )}
+
               {pairStep === 'waiting-answer' && (
                 <>
                   <div>
-                    <p className="text-sm text-[#999999] mb-2">1. Share this code with the other person:</p>
+                    <p
+                      style={{
+                        fontSize: 'var(--text-xs)',
+                        color: 'var(--text-muted)',
+                        marginBottom: '0.5rem',
+                      }}
+                    >
+                      1. Share this code:
+                    </p>
                     <div className="relative">
-                      <textarea readOnly value={generatedOffer}
-                        className="w-full h-24 bg-[#0d0d0d] border border-[#333333] rounded-lg p-3 font-mono text-xs text-[#CCC] resize-none" />
-                      <Button size="sm" variant="outline" onClick={() => copyToClipboard(generatedOffer)}
-                        className="absolute top-2 right-2 !bg-[#1a1a1a] border-[#555] text-[#999] text-xs">
-                        {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                      </Button>
+                      <textarea
+                        readOnly
+                        value={generatedOffer}
+                        style={monoArea}
+                      />
+                      <button
+                        onClick={() =>
+                          copyToClipboard(generatedOffer)
+                        }
+                        aria-label="Copy offer"
+                        className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg"
+                        style={{
+                          background:
+                            'var(--surface-dynamic)',
+                          border:
+                            '1px solid var(--border)',
+                          color: 'var(--text-muted)',
+                          fontSize: '0.65rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {copied ? (
+                          <Check size={10} />
+                        ) : (
+                          <Copy size={10} />
+                        )}
+                      </button>
                     </div>
                   </div>
                   <div>
-                    <p className="text-sm text-[#999999] mb-2">2. Paste the answer code they send back:</p>
+                    <p
+                      style={{
+                        fontSize: 'var(--text-xs)',
+                        color: 'var(--text-muted)',
+                        marginBottom: '0.5rem',
+                      }}
+                    >
+                      2. Paste their answer:
+                    </p>
                     <textarea
                       value={pastedAnswer}
-                      onChange={e => setPastedAnswer(e.target.value)}
+                      onChange={(e) =>
+                        setPastedAnswer(e.target.value)
+                      }
                       placeholder="Paste answer code here…"
-                      className="w-full h-24 bg-[#0d0d0d] border border-[#333333] rounded-lg p-3 font-mono text-xs text-white placeholder:text-[#555] resize-none"
+                      style={{
+                        ...monoArea,
+                        color: 'var(--text)',
+                      }}
                     />
                   </div>
-                  <Button onClick={handleAcceptAnswer} disabled={!pastedAnswer.trim()}
-                    className="w-full bg-gradient-to-r from-[#707070] to-[#A0A0A0] text-white">
-                    Complete Connection
-                  </Button>
+                  <Btn
+                    onClick={handleAcceptAnswer}
+                    disabled={!pastedAnswer.trim()}
+                    fullWidth
+                  >
+                    Complete connection
+                  </Btn>
                 </>
               )}
             </div>
           )}
 
-          {/* ACCEPT OFFER flow */}
           {pairMode === 'accept' && (
             <div className="space-y-4">
               {pairStep === 'start' && (
                 <>
-                  <p className="text-sm text-[#999999] mb-2">Paste the connection code you received:</p>
+                  <p
+                    style={{
+                      fontSize: 'var(--text-xs)',
+                      color: 'var(--text-muted)',
+                      marginBottom: '0.5rem',
+                    }}
+                  >
+                    Paste the connection code you received:
+                  </p>
                   <textarea
                     value={pastedOffer}
-                    onChange={e => setPastedOffer(e.target.value)}
+                    onChange={(e) =>
+                      setPastedOffer(e.target.value)
+                    }
                     placeholder="Paste connection code here…"
-                    className="w-full h-24 bg-[#0d0d0d] border border-[#333333] rounded-lg p-3 font-mono text-xs text-white placeholder:text-[#555] resize-none"
+                    style={{
+                      ...monoArea,
+                      color: 'var(--text)',
+                    }}
                   />
-                  <Button onClick={handleAcceptOffer} disabled={!pastedOffer.trim()}
-                    className="w-full bg-gradient-to-r from-[#707070] to-[#A0A0A0] text-white">
-                    Generate Answer Code
-                  </Button>
+                  <Btn
+                    onClick={handleAcceptOffer}
+                    disabled={!pastedOffer.trim()}
+                    fullWidth
+                  >
+                    Generate answer code
+                  </Btn>
                 </>
               )}
+
               {pairStep === 'done' && (
                 <>
-                  <p className="text-sm text-[#999999] mb-2">Share this answer code back with the other person:</p>
+                  <p
+                    style={{
+                      fontSize: 'var(--text-xs)',
+                      color: 'var(--text-muted)',
+                      marginBottom: '0.5rem',
+                    }}
+                  >
+                    Share this answer back:
+                  </p>
                   <div className="relative">
-                    <textarea readOnly value={generatedAnswer}
-                      className="w-full h-24 bg-[#0d0d0d] border border-[#333333] rounded-lg p-3 font-mono text-xs text-[#CCC] resize-none" />
-                    <Button size="sm" variant="outline" onClick={() => copyToClipboard(generatedAnswer)}
-                      className="absolute top-2 right-2 !bg-[#1a1a1a] border-[#555] text-[#999] text-xs">
-                      {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    </Button>
+                    <textarea
+                      readOnly
+                      value={generatedAnswer}
+                      style={monoArea}
+                    />
+                    <button
+                      onClick={() =>
+                        copyToClipboard(generatedAnswer)
+                      }
+                      aria-label="Copy answer"
+                      className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg"
+                      style={{
+                        background: 'var(--surface-dynamic)',
+                        border:
+                          '1px solid var(--border)',
+                        color: 'var(--text-muted)',
+                        fontSize: '0.65rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {copied ? (
+                        <Check size={10} />
+                      ) : (
+                        <Copy size={10} />
+                      )}
+                    </button>
                   </div>
-                  <p className="text-sm text-[#888888]">Once they paste it, you'll be connected. You can close this dialog.</p>
-                  <Button onClick={() => setShowPairDialog(false)} variant="outline"
-                    className="w-full !bg-transparent border-[#333] text-[#999]">
-                    Done
-                  </Button>
+                  <p
+                    style={{
+                      fontSize: 'var(--text-xs)',
+                      color: 'var(--text-faint)',
+                    }}
+                  >
+                    Connection completes automatically once
+                    they paste it.
+                  </p>
+                  <Btn
+                    onClick={() => setShowPairDialog(false)}
+                    variant="ghost"
+                    fullWidth
+                  >
+                    Done <X size={12} />
+                  </Btn>
                 </>
               )}
             </div>
