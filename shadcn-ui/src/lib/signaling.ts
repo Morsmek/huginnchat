@@ -1,20 +1,15 @@
 /**
  * Signaling — PeerJS for cross-device, BroadcastChannel for same-browser.
  *
- * Connection flow:
+ * Simple approach:
+ *   - Every peer registers with ID:  huginn-{roomCode}-{participantId}
+ *   - The "host" also registers a second peer with a well-known ID:
+ *       huginn-{roomCode}-host
+ *   - Joiners connect to huginn-{roomCode}-host to get introductions.
+ *   - After intro, all peers connect directly to each other (full mesh).
  *
- *  The room has a well-known "anchor" PeerJS ID: huginn-{roomCode}
- *  Each participant has their own ID:            huginn-{roomCode}-{participantId}
- *
- *  Step 1 — every peer tries to CLAIM the anchor ID.
- *  Step 2a — if claim succeeds → you are the "host". Accept incoming
- *             connections. When a new peer connects via the anchor, send
- *             them the list of all connected participant IDs, then connect
- *             directly to the new peer from your main peer ID.
- *  Step 2b — if claim fails → someone else is host. Connect to the anchor
- *             to receive the peer list, then form direct connections.
- *
- *  PeerJS server: api.peerjs.com (current live server, not the deprecated 0.peerjs.com)
+ * We use the default PeerJS cloud (no custom host params) which is the
+ * most reliable option since it's the officially maintained server.
  */
 
 declare const Peer: any;
@@ -27,22 +22,7 @@ export type SignalMessage =
 
 export type SignalHandler = (msg: SignalMessage) => void;
 
-const PEER_CFG = {
-  // Use api.peerjs.com — the current maintained PeerJS cloud server
-  host: 'api.peerjs.com',
-  port: 443,
-  path: '/',
-  secure: true,
-  debug: 0,
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-    ],
-  },
-};
-
-// ── BroadcastChannel (same browser, same origin) ─────────────────────────
+// ── BroadcastChannel (same browser) ─────────────────────────────────────────
 
 export class LocalSignalingChannel {
   private channel: BroadcastChannel;
@@ -67,159 +47,146 @@ export class LocalSignalingChannel {
   close() { this.channel.close(); }
 }
 
-// ── PeerJS mesh ──────────────────────────────────────────────────────────
+// ── PeerJS ───────────────────────────────────────────────────────────────────
 
 export class PeerJSSignaling {
-  private mainPeer: any = null;
-  private anchorPeer: any = null; // only held if we are the host
+  // Our main peer (unique per participant)
+  private peer: any = null;
+  // Host-only: the well-known "host" peer for this room
+  private hostPeer: any = null;
 
   private readonly roomCode: string;
   private readonly participantId: string;
   private readonly participantName: string;
 
-  // fullId -> DataConnection  (direct participant-to-participant)
-  private connections = new Map<string, any>();
-  // shortId -> name
-  private peerNames = new Map<string, string>();
+  private connections = new Map<string, any>(); // fullId -> DataConnection
+  private peerNames  = new Map<string, string>(); // shortId -> name
 
   private handlers: SignalHandler[] = [];
-  private onJoinCb?: (shortId: string, name: string) => void;
+  private onJoinCb?:  (shortId: string, name: string) => void;
   private onLeaveCb?: (shortId: string) => void;
 
   private destroyed = false;
-  private isHost = false; // did we successfully claim the anchor?
+  private amHost    = false;
 
   constructor(roomCode: string, participantId: string, participantName: string) {
-    this.roomCode = roomCode;
-    this.participantId = participantId;
+    this.roomCode       = roomCode;
+    this.participantId  = participantId;
     this.participantName = participantName;
   }
 
-  // ── ID helpers ───────────────────────────────────────────────────────────
+  get myId()   { return `huginn-${this.roomCode}-${this.participantId}`; }
+  get hostId() { return `huginn-${this.roomCode}-host`; }
 
-  get myFullId() { return `huginn-${this.roomCode}-${this.participantId}`; }
-  get anchorId() { return `huginn-${this.roomCode}`; }
-
-  private toShort(fullId: string): string {
-    // huginn-{code}-{shortId} → shortId
-    const prefix = `huginn-${this.roomCode}-`;
-    if (fullId.startsWith(prefix)) return fullId.slice(prefix.length);
-    return fullId;
+  private short(fullId: string): string {
+    const pre = `huginn-${this.roomCode}-`;
+    return fullId.startsWith(pre) ? fullId.slice(pre.length) : fullId;
+  }
+  private isMe(id: string) {
+    return id === this.myId || id === this.participantId;
   }
 
-  private isMe(id: string): boolean {
-    return id === this.myFullId || id === this.participantId;
-  }
+  onMessage(h: SignalHandler)              { this.handlers.push(h); }
+  onPeerJoin(cb: (id: string, name: string) => void)  { this.onJoinCb  = cb; }
+  onPeerLeave(cb: (id: string) => void)               { this.onLeaveCb = cb; }
 
-  // ── Events ───────────────────────────────────────────────────────────────
-
-  onMessage(h: SignalHandler): () => void {
-    this.handlers.push(h);
-    return () => { this.handlers = this.handlers.filter((x) => x !== h); };
-  }
-  onPeerJoin(cb: (shortId: string, name: string) => void) { this.onJoinCb = cb; }
-  onPeerLeave(cb: (shortId: string) => void) { this.onLeaveCb = cb; }
-
-  // ── Start ────────────────────────────────────────────────────────────────
+  // ── Start ──────────────────────────────────────────────────────────────────
 
   start(): Promise<void> {
     return new Promise((resolve) => {
-      const main = new Peer(this.myFullId, PEER_CFG);
-      this.mainPeer = main;
+      // Use default PeerJS cloud server (no host/port params = uses peerjs.com)
+      this.peer = new Peer(this.myId);
 
-      main.on('open', () => {
+      this.peer.on('open', (id: string) => {
+        console.log('[PeerJS] main peer open:', id);
         if (this.destroyed) return;
 
-        // Accept incoming direct connections (from host forwarding us to others)
-        main.on('connection', (conn: any) => this._setupDirectConn(conn));
+        // Accept incoming direct connections
+        this.peer.on('connection', (conn: any) => this._onIncoming(conn));
 
-        // Race: try to claim anchor AND connect to it simultaneously.
-        // Exactly one will win. We set a short delay on the join path so the
-        // creator's claim has a chance to open first.
-        this._tryClaimAnchor(resolve);
-        setTimeout(() => {
-          if (!this.isHost && !this.destroyed) {
-            this._joinViaAnchor(resolve);
-          }
-        }, 1500);
-
-        // Safety resolve after 10s
-        setTimeout(() => resolve(), 10000);
+        // Race to become host
+        this._becomeHost(resolve);
       });
 
-      main.on('error', (err: any) => {
+      this.peer.on('error', (err: any) => {
+        console.warn('[PeerJS main error]', err.type, err.message);
         if (err.type === 'unavailable-id') {
-          // Our participant ID is somehow taken — generate a suffix and retry
-          console.warn('[PeerJS] main ID taken, this should not happen');
+          // Our participant ID clashed — extremely unlikely
           resolve();
           return;
         }
-        if (err.type === 'peer-unavailable') return;
-        console.warn('[PeerJS main]', err.type, err.message);
-        resolve(); // non-fatal — fall back to local-only
+        if (err.type === 'peer-unavailable') return; // expected
+        resolve(); // don't block on errors
       });
+
+      setTimeout(resolve, 12000); // hard fallback
     });
   }
 
-  // ── Host path (claim anchor) ──────────────────────────────────────────────
+  // ── Host logic ─────────────────────────────────────────────────────────────
 
-  private _tryClaimAnchor(resolve: () => void) {
-    const ap = new Peer(this.anchorId, PEER_CFG);
+  private _becomeHost(resolve: () => void) {
+    // Try to register the well-known host peer ID
+    const hp = new Peer(this.hostId);
 
-    ap.on('open', () => {
-      if (this.destroyed) { ap.destroy(); return; }
-      this.anchorPeer = ap;
-      this.isHost = true;
-      console.log('[PeerJS] I am the host (anchor claimed)');
-      resolve(); // host is ready
+    hp.on('open', (id: string) => {
+      console.log('[PeerJS] I am the host:', id);
+      this.hostPeer = hp;
+      this.amHost = true;
+      resolve();
 
-      // Accept connections on the anchor — these are join requests from newcomers
-      ap.on('connection', (anchorConn: any) => {
-        anchorConn.on('open', () => {
-          const joinerShortId: string = anchorConn.metadata?.id ?? this.toShort(anchorConn.peer);
-          const joinerName: string = anchorConn.metadata?.name ?? 'Peer';
+      // When a joiner connects to the host peer, send them the peer list
+      hp.on('connection', (conn: any) => {
+        conn.on('open', () => {
+          const joinerShort: string = conn.metadata?.id ?? this.short(conn.peer);
+          const joinerName:  string = conn.metadata?.name ?? 'Peer';
 
-          if (this.isMe(joinerShortId)) { anchorConn.close(); return; }
+          if (this.isMe(joinerShort)) { conn.close(); return; }
 
-          // Send the joiner the list of all currently connected peers
-          // (including ourselves — the host)
-          const peerList = [
+          console.log('[PeerJS host] joiner connected:', joinerShort);
+
+          // Tell the joiner about everyone (including ourselves)
+          const list = [
             { id: this.participantId, name: this.participantName },
             ...Array.from(this.peerNames.entries()).map(([id, name]) => ({ id, name })),
-          ].filter((p) => p.id !== joinerShortId);
+          ].filter(p => p.id !== joinerShort);
 
-          anchorConn.send({ type: 'peer-list', peers: peerList });
-          anchorConn.close(); // intro only
+          conn.send({ type: 'peer-list', peers: list });
+          // Don't close immediately — wait for message to be sent
+          setTimeout(() => conn.close(), 500);
 
-          // Initiate a direct connection to the joiner
-          if (!this.connections.has(`huginn-${this.roomCode}-${joinerShortId}`)) {
-            this._openDirectConn(joinerShortId, joinerName);
-          }
+          // Connect directly to the joiner from our main peer
+          this._directConnect(joinerShort, joinerName);
         });
-
-        anchorConn.on('error', () => {});
+        conn.on('error', () => {});
       });
 
-      ap.on('error', (e: any) => console.warn('[PeerJS anchor]', e.type));
+      hp.on('error', (e: any) => console.warn('[PeerJS host error]', e.type));
     });
 
-    ap.on('error', (err: any) => {
+    hp.on('error', (err: any) => {
       if (err.type === 'unavailable-id') {
-        // Anchor is already taken — we are a joiner, not the host
-        ap.destroy();
+        // Someone else is the host — we are a joiner
+        console.log('[PeerJS] host taken, joining as peer');
+        hp.destroy();
+        // Wait a moment then connect to host
+        setTimeout(() => this._joinAsClient(resolve), 500);
         return;
       }
-      console.warn('[PeerJS anchor claim]', err.type);
-      ap.destroy();
+      console.warn('[PeerJS host claim error]', err.type);
+      hp.destroy();
+      setTimeout(() => this._joinAsClient(resolve), 500);
     });
   }
 
-  // ── Joiner path (connect to anchor) ──────────────────────────────────────
+  // ── Joiner logic ───────────────────────────────────────────────────────────
 
-  private _joinViaAnchor(resolve: () => void, attempt = 0) {
-    if (this.destroyed || this.isHost) return;
+  private _joinAsClient(resolve: () => void, attempt = 0) {
+    if (this.destroyed || this.amHost) return;
 
-    const conn = this.mainPeer.connect(this.anchorId, {
+    console.log(`[PeerJS] connecting to host (attempt ${attempt + 1})`);
+
+    const conn = this.peer.connect(this.hostId, {
       metadata: { id: this.participantId, name: this.participantName },
       reliable: true,
     });
@@ -228,74 +195,82 @@ export class PeerJSSignaling {
 
     conn.on('open', () => {
       opened = true;
-      console.log('[PeerJS] connected to anchor, waiting for peer-list');
-      resolve(); // we're connected
+      console.log('[PeerJS] connected to host');
+      resolve();
     });
 
     conn.on('data', (data: any) => {
       if (data?.type === 'peer-list') {
         const peers: Array<{ id: string; name: string }> = data.peers ?? [];
-        console.log('[PeerJS] received peer-list:', peers);
+        console.log('[PeerJS] got peer-list from host:', peers);
         for (const p of peers) {
-          if (!this.isMe(p.id)) {
-            this._openDirectConn(p.id, p.name);
-          }
+          if (!this.isMe(p.id)) this._directConnect(p.id, p.name);
         }
       }
     });
 
     conn.on('error', (e: any) => {
-      if (!opened && attempt < 5 && !this.destroyed && !this.isHost) {
-        console.log(`[PeerJS] anchor connect failed (attempt ${attempt + 1}), retrying...`);
-        setTimeout(() => this._joinViaAnchor(resolve, attempt + 1), 2000);
+      console.warn('[PeerJS joiner error]', e.type);
+      if (!opened && attempt < 4 && !this.destroyed && !this.amHost) {
+        setTimeout(() => this._joinAsClient(resolve, attempt + 1), 2500);
+      }
+    });
+
+    conn.on('close', () => {
+      if (!opened && attempt < 4 && !this.destroyed && !this.amHost) {
+        setTimeout(() => this._joinAsClient(resolve, attempt + 1), 2500);
       }
     });
   }
 
-  // ── Direct peer-to-peer connections ──────────────────────────────────────
+  // ── Direct peer connections ────────────────────────────────────────────────
 
-  private _openDirectConn(shortId: string, name: string) {
+  private _directConnect(shortId: string, name: string) {
     if (this.isMe(shortId)) return;
     const fullId = `huginn-${this.roomCode}-${shortId}`;
     if (this.connections.has(fullId)) return;
 
-    console.log('[PeerJS] opening direct connection to', shortId);
-    const conn = this.mainPeer.connect(fullId, {
+    console.log('[PeerJS] direct connect to:', shortId);
+
+    const conn = this.peer.connect(fullId, {
       metadata: { id: this.participantId, name: this.participantName },
       reliable: true,
     });
 
-    this._setupDirectConn(conn, shortId, name);
+    this._setupConn(conn, shortId, name);
   }
 
-  private _setupDirectConn(conn: any, knownShortId?: string, knownName?: string) {
-    const fullId: string = conn.peer;
-    const shortId = knownShortId ?? this.toShort(fullId);
+  private _onIncoming(conn: any) {
+    const fullId  = conn.peer as string;
+    const shortId = this.short(fullId);
+    if (this.isMe(fullId) || shortId === 'host') { conn.close(); return; }
+    console.log('[PeerJS] incoming connection from:', shortId);
+    this._setupConn(conn, shortId, conn.metadata?.name);
+  }
 
-    // Reject self-connections
-    if (this.isMe(fullId) || this.isMe(shortId)) { conn.close(); return; }
+  private _setupConn(conn: any, shortId: string, name?: string) {
+    if (this.isMe(shortId)) { conn.close(); return; }
+    const fullId = `huginn-${this.roomCode}-${shortId}`;
 
     conn.on('open', () => {
       if (this.destroyed) { conn.close(); return; }
+      if (this.connections.has(fullId)) { conn.close(); return; } // duplicate
       this.connections.set(fullId, conn);
-      const name = knownName ?? (conn.metadata?.name as string) ?? 'Peer';
-      this.peerNames.set(shortId, name);
-      this.onJoinCb?.(shortId, name);
-      // Introduce ourselves
+      const resolvedName = name ?? conn.metadata?.name ?? 'Peer';
+      this.peerNames.set(shortId, resolvedName);
+      console.log('[PeerJS] direct connection open with:', shortId);
+      this.onJoinCb?.(shortId, resolvedName);
       conn.send({ type: 'join', from: this.participantId, name: this.participantName });
     });
 
     conn.on('data', (data: any) => {
-      if (!data) return;
-      const from: string = data.from ?? shortId;
-      if (this.isMe(from)) return;
-
+      if (!data || this.isMe(data.from ?? shortId)) return;
       if (data.type === 'join') {
-        // Update name — join is already fired on open
         if (data.name) this.peerNames.set(shortId, data.name);
         return;
       }
-      this.handlers.forEach((h) => h({ ...data, from: shortId }));
+      if (data.type === 'peer-list') return;
+      this.handlers.forEach(h => h({ ...data, from: shortId }));
     });
 
     conn.on('close', () => {
@@ -304,11 +279,11 @@ export class PeerJSSignaling {
     });
 
     conn.on('error', (e: any) => {
-      if (e?.type !== 'peer-unavailable') console.warn('[PeerJS direct conn]', e);
+      if (e?.type !== 'peer-unavailable') console.warn('[PeerJS conn]', e);
     });
   }
 
-  // ── Broadcast ─────────────────────────────────────────────────────────────
+  // ── Broadcast ──────────────────────────────────────────────────────────────
 
   broadcast(msg: SignalMessage) {
     this.connections.forEach((conn) => {
@@ -316,14 +291,12 @@ export class PeerJSSignaling {
     });
   }
 
-  // ── Destroy ───────────────────────────────────────────────────────────────
-
   destroy() {
     this.destroyed = true;
-    this.connections.forEach((c) => c.close());
+    this.connections.forEach(c => c.close());
     this.connections.clear();
-    this.mainPeer?.destroy();
-    this.anchorPeer?.destroy();
-    this.anchorPeer = null;
+    this.peer?.destroy();
+    this.hostPeer?.destroy();
+    this.hostPeer = null;
   }
 }
