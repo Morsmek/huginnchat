@@ -1,33 +1,48 @@
 /**
- * Signaling via PeerJS (free public server) + BroadcastChannel fallback.
+ * Signaling — PeerJS for cross-device, BroadcastChannel for same-browser.
  *
- * PeerJS handles WebRTC offer/answer automatically for cross-device connections.
- * BroadcastChannel handles instant same-browser tab-to-tab connections.
+ * Connection flow:
  *
- * Peer discovery strategy (no lobby peer — lobby caused self-connect bugs):
- *   Each peer registers as: huginn-{roomCode}-{participantId}
- *   When peer A joins, it attempts to connect to the well-known "roster" peer:
- *     huginn-{roomCode}-roster
- *   The roster peer is simply the first peer that arrived.  It keeps a list of
- *   all live peer IDs and hands them to newcomers via a "peer-list" message.
- *   If the roster peer is unreachable the newcomer tries to claim the role.
+ *  The room has a well-known "anchor" PeerJS ID: huginn-{roomCode}
+ *  Each participant has their own ID:            huginn-{roomCode}-{participantId}
  *
- *   Key guarantee: a peer NEVER connects to itself. Every connect/data call
- *   checks remotePeerId !== myPeerId before proceeding.
+ *  Step 1 — every peer tries to CLAIM the anchor ID.
+ *  Step 2a — if claim succeeds → you are the "host". Accept incoming
+ *             connections. When a new peer connects via the anchor, send
+ *             them the list of all connected participant IDs, then connect
+ *             directly to the new peer from your main peer ID.
+ *  Step 2b — if claim fails → someone else is host. Connect to the anchor
+ *             to receive the peer list, then form direct connections.
+ *
+ *  PeerJS server: api.peerjs.com (current live server, not the deprecated 0.peerjs.com)
  */
 
-// PeerJS is loaded via CDN in index.html — declare the global type
 declare const Peer: any;
 
 export type SignalMessage =
-  | { type: 'join';       from: string; name: string }
-  | { type: 'leave';      from: string }
-  | { type: 'chat';       from: string; payload: unknown }
-  | { type: 'peer-list';  peers: Array<{ id: string; name: string }> };
+  | { type: 'join';      from: string; name: string }
+  | { type: 'leave';     from: string }
+  | { type: 'chat';      from: string; payload: unknown }
+  | { type: 'peer-list'; peers: Array<{ id: string; name: string }> };
 
 export type SignalHandler = (msg: SignalMessage) => void;
 
-// ── BroadcastChannel (same browser, same origin) ────────────────────────────
+const PEER_CFG = {
+  // Use api.peerjs.com — the current maintained PeerJS cloud server
+  host: 'api.peerjs.com',
+  port: 443,
+  path: '/',
+  secure: true,
+  debug: 0,
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+    ],
+  },
+};
+
+// ── BroadcastChannel (same browser, same origin) ─────────────────────────
 
 export class LocalSignalingChannel {
   private channel: BroadcastChannel;
@@ -38,7 +53,6 @@ export class LocalSignalingChannel {
     this.peerId = peerId;
     this.channel = new BroadcastChannel(`huginn::${roomId}`);
     this.channel.onmessage = (e) => {
-      // Ignore our own messages
       if (e.data?.from !== this.peerId) {
         this.handlers.forEach((h) => h(e.data));
       }
@@ -46,60 +60,34 @@ export class LocalSignalingChannel {
   }
 
   send(msg: SignalMessage) { this.channel.postMessage(msg); }
-
-  onMessage(handler: SignalHandler): () => void {
-    this.handlers.push(handler);
-    return () => { this.handlers = this.handlers.filter((h) => h !== handler); };
+  onMessage(h: SignalHandler): () => void {
+    this.handlers.push(h);
+    return () => { this.handlers = this.handlers.filter((x) => x !== h); };
   }
-
   close() { this.channel.close(); }
 }
 
-// ── PeerJS (cross-device) ───────────────────────────────────────────────────
+// ── PeerJS mesh ──────────────────────────────────────────────────────────
 
-const PEERJS_CONFIG = {
-  host: '0.peerjs.com',
-  port: 443,
-  path: '/',
-  secure: true,
-  debug: 0,
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun.cloudflare.com:3478' },
-    ],
-  },
-};
-
-const ROSTER_SUFFIX = 'roster';
-
-/**
- * PeerJSSignaling manages a PeerJS peer and a mesh of data-channel connections.
- *
- * Emits:
- *   onPeerJoin(shortId, name)      — a remote peer has connected and introduced itself
- *   onPeerLeave(shortId)           — a remote peer's connection closed
- *   onMessage(msg: SignalMessage)  — a chat message arrived from a remote peer
- */
 export class PeerJSSignaling {
-  private peer: any = null;
-  private rosterPeer: any = null; // second Peer instance, only when we hold the roster role
+  private mainPeer: any = null;
+  private anchorPeer: any = null; // only held if we are the host
 
-  private roomCode: string;
-  private participantId: string;
-  private participantName: string;
+  private readonly roomCode: string;
+  private readonly participantId: string;
+  private readonly participantName: string;
 
-  // peerId -> DataConnection  (only actual remote participant peers, not roster)
+  // fullId -> DataConnection  (direct participant-to-participant)
   private connections = new Map<string, any>();
-  // shortId -> name  (for peers known from the peer-list before they connect)
-  private knownPeers = new Map<string, string>();
+  // shortId -> name
+  private peerNames = new Map<string, string>();
 
   private handlers: SignalHandler[] = [];
-  private onJoinCallback?: (shortId: string, name: string) => void;
-  private onLeaveCallback?: (shortId: string) => void;
+  private onJoinCb?: (shortId: string, name: string) => void;
+  private onLeaveCb?: (shortId: string) => void;
 
   private destroyed = false;
+  private isHost = false; // did we successfully claim the anchor?
 
   constructor(roomCode: string, participantId: string, participantName: string) {
     this.roomCode = roomCode;
@@ -107,257 +95,235 @@ export class PeerJSSignaling {
     this.participantName = participantName;
   }
 
-  // ── Public ID helpers ──────────────────────────────────────────────────────
+  // ── ID helpers ───────────────────────────────────────────────────────────
 
-  get myPeerId(): string {
-    return `huginn-${this.roomCode}-${this.participantId}`;
+  get myFullId() { return `huginn-${this.roomCode}-${this.participantId}`; }
+  get anchorId() { return `huginn-${this.roomCode}`; }
+
+  private toShort(fullId: string): string {
+    // huginn-{code}-{shortId} → shortId
+    const prefix = `huginn-${this.roomCode}-`;
+    if (fullId.startsWith(prefix)) return fullId.slice(prefix.length);
+    return fullId;
   }
 
-  private get rosterPeerId(): string {
-    return `huginn-${this.roomCode}-${ROSTER_SUFFIX}`;
+  private isMe(id: string): boolean {
+    return id === this.myFullId || id === this.participantId;
   }
 
-  private shortId(fullPeerId: string): string {
-    return fullPeerId.replace(`huginn-${this.roomCode}-`, '');
+  // ── Events ───────────────────────────────────────────────────────────────
+
+  onMessage(h: SignalHandler): () => void {
+    this.handlers.push(h);
+    return () => { this.handlers = this.handlers.filter((x) => x !== h); };
   }
+  onPeerJoin(cb: (shortId: string, name: string) => void) { this.onJoinCb = cb; }
+  onPeerLeave(cb: (shortId: string) => void) { this.onLeaveCb = cb; }
 
-  private isMyself(fullOrShortId: string): boolean {
-    return (
-      fullOrShortId === this.myPeerId ||
-      fullOrShortId === this.participantId
-    );
-  }
+  // ── Start ────────────────────────────────────────────────────────────────
 
-  // ── Event registration ─────────────────────────────────────────────────────
+  start(): Promise<void> {
+    return new Promise((resolve) => {
+      const main = new Peer(this.myFullId, PEER_CFG);
+      this.mainPeer = main;
 
-  onMessage(handler: SignalHandler): () => void {
-    this.handlers.push(handler);
-    return () => { this.handlers = this.handlers.filter((h) => h !== handler); };
-  }
+      main.on('open', () => {
+        if (this.destroyed) return;
 
-  onPeerJoin(cb: (shortId: string, name: string) => void) { this.onJoinCallback = cb; }
-  onPeerLeave(cb: (shortId: string) => void) { this.onLeaveCallback = cb; }
+        // Accept incoming direct connections (from host forwarding us to others)
+        main.on('connection', (conn: any) => this._setupDirectConn(conn));
 
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
+        // Race: try to claim anchor AND connect to it simultaneously.
+        // Exactly one will win. We set a short delay on the join path so the
+        // creator's claim has a chance to open first.
+        this._tryClaimAnchor(resolve);
+        setTimeout(() => {
+          if (!this.isHost && !this.destroyed) {
+            this._joinViaAnchor(resolve);
+          }
+        }, 1500);
 
-  async start(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        this.peer = new Peer(this.myPeerId, PEERJS_CONFIG);
+        // Safety resolve after 10s
+        setTimeout(() => resolve(), 10000);
+      });
 
-        this.peer.on('open', (id: string) => {
-          if (this.destroyed) return;
-          // Accept incoming connections from other peers
-          this.peer.on('connection', (conn: any) => {
-            this._setupIncoming(conn);
-          });
-          // Announce ourselves to the room
-          this._joinRoom();
+      main.on('error', (err: any) => {
+        if (err.type === 'unavailable-id') {
+          // Our participant ID is somehow taken — generate a suffix and retry
+          console.warn('[PeerJS] main ID taken, this should not happen');
           resolve();
-        });
-
-        this.peer.on('error', (err: any) => {
-          if (err.type === 'unavailable-id') {
-            // Our chosen peer ID is taken — extremely unlikely with UUID-based IDs
-            console.warn('[PeerJS] peer ID taken, retrying with new ID');
-            resolve(); // non-fatal
-            return;
-          }
-          if (err.type === 'peer-unavailable') return; // normal — remote peer not yet online
-          console.warn('[PeerJS] error:', err.type, err.message);
-          reject(err);
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  // ── Room join flow ─────────────────────────────────────────────────────────
-
-  private _joinRoom() {
-    // Step 1: try to connect to the existing roster peer to get the peer list
-    const rosterConn = this.peer.connect(this.rosterPeerId, {
-      metadata: { id: this.participantId, name: this.participantName },
-      reliable: true,
-    });
-
-    let rosterResponded = false;
-
-    rosterConn.on('open', () => {
-      rosterResponded = true;
-      // Roster peer will send us the peer list, then we connect to each one
-    });
-
-    rosterConn.on('data', (data: any) => {
-      if (data?.type === 'peer-list') {
-        const peers: Array<{ id: string; name: string }> = data.peers || [];
-        for (const p of peers) {
-          if (!this.isMyself(p.id)) {
-            this.knownPeers.set(p.id, p.name);
-            this._connectToPeer(p.id, p.name);
-          }
+          return;
         }
-        rosterConn.close(); // done with roster — direct connections take over
-      }
-    });
-
-    rosterConn.on('error', () => {
-      // Roster peer unavailable — we become the roster
-      if (!rosterResponded) {
-        this._claimRoster();
-      }
-    });
-
-    // If roster doesn't respond within 3 seconds, claim the role
-    setTimeout(() => {
-      if (!rosterResponded && !this.destroyed) {
-        this._claimRoster();
-      }
-    }, 3000);
-  }
-
-  private _claimRoster() {
-    if (this.destroyed || this.rosterPeer) return;
-
-    this.rosterPeer = new Peer(this.rosterPeerId, {
-      ...PEERJS_CONFIG,
-      // Roster peer uses same ICE config
-    });
-
-    this.rosterPeer.on('open', () => {
-      this.rosterPeer.on('connection', (conn: any) => {
-        conn.on('open', () => {
-          // Send the new peer a list of everyone currently connected
-          const currentPeers = Array.from(this.connections.entries())
-            .filter(([fullId]) => !this.isMyself(fullId))
-            .map(([fullId, _]) => ({
-              id: this.shortId(fullId),
-              name: this.knownPeers.get(this.shortId(fullId)) || 'Peer',
-            }));
-
-          conn.send({ type: 'peer-list', peers: currentPeers });
-        });
-
-        conn.on('error', () => {});
+        if (err.type === 'peer-unavailable') return;
+        console.warn('[PeerJS main]', err.type, err.message);
+        resolve(); // non-fatal — fall back to local-only
       });
     });
+  }
 
-    this.rosterPeer.on('error', (err: any) => {
+  // ── Host path (claim anchor) ──────────────────────────────────────────────
+
+  private _tryClaimAnchor(resolve: () => void) {
+    const ap = new Peer(this.anchorId, PEER_CFG);
+
+    ap.on('open', () => {
+      if (this.destroyed) { ap.destroy(); return; }
+      this.anchorPeer = ap;
+      this.isHost = true;
+      console.log('[PeerJS] I am the host (anchor claimed)');
+      resolve(); // host is ready
+
+      // Accept connections on the anchor — these are join requests from newcomers
+      ap.on('connection', (anchorConn: any) => {
+        anchorConn.on('open', () => {
+          const joinerShortId: string = anchorConn.metadata?.id ?? this.toShort(anchorConn.peer);
+          const joinerName: string = anchorConn.metadata?.name ?? 'Peer';
+
+          if (this.isMe(joinerShortId)) { anchorConn.close(); return; }
+
+          // Send the joiner the list of all currently connected peers
+          // (including ourselves — the host)
+          const peerList = [
+            { id: this.participantId, name: this.participantName },
+            ...Array.from(this.peerNames.entries()).map(([id, name]) => ({ id, name })),
+          ].filter((p) => p.id !== joinerShortId);
+
+          anchorConn.send({ type: 'peer-list', peers: peerList });
+          anchorConn.close(); // intro only
+
+          // Initiate a direct connection to the joiner
+          if (!this.connections.has(`huginn-${this.roomCode}-${joinerShortId}`)) {
+            this._openDirectConn(joinerShortId, joinerName);
+          }
+        });
+
+        anchorConn.on('error', () => {});
+      });
+
+      ap.on('error', (e: any) => console.warn('[PeerJS anchor]', e.type));
+    });
+
+    ap.on('error', (err: any) => {
       if (err.type === 'unavailable-id') {
-        // Someone else claimed roster first — that's fine
-        this.rosterPeer?.destroy();
-        this.rosterPeer = null;
-        // Try to join through the new roster
-        setTimeout(() => this._joinRoom(), 500);
+        // Anchor is already taken — we are a joiner, not the host
+        ap.destroy();
+        return;
       }
+      console.warn('[PeerJS anchor claim]', err.type);
+      ap.destroy();
     });
   }
 
-  private _connectToPeer(shortId: string, name: string) {
-    if (this.isMyself(shortId)) return;
-    const fullId = `huginn-${this.roomCode}-${shortId}`;
-    if (this.connections.has(fullId)) return; // already connected
+  // ── Joiner path (connect to anchor) ──────────────────────────────────────
 
-    const conn = this.peer.connect(fullId, {
+  private _joinViaAnchor(resolve: () => void, attempt = 0) {
+    if (this.destroyed || this.isHost) return;
+
+    const conn = this.mainPeer.connect(this.anchorId, {
       metadata: { id: this.participantId, name: this.participantName },
       reliable: true,
     });
 
-    this._setupOutgoing(conn, shortId, name);
-  }
-
-  // ── Connection setup ───────────────────────────────────────────────────────
-
-  /** Incoming connection initiated by a remote peer */
-  private _setupIncoming(conn: any) {
-    const fullId: string = conn.peer;
-    const shortId = this.shortId(fullId);
-
-    if (this.isMyself(fullId) || shortId === ROSTER_SUFFIX) {
-      conn.close();
-      return;
-    }
+    let opened = false;
 
     conn.on('open', () => {
-      if (this.destroyed) { conn.close(); return; }
-      this.connections.set(fullId, conn);
-      const name: string = conn.metadata?.name || 'Peer';
-      this.knownPeers.set(shortId, name);
-      // Fire join event
-      this.onJoinCallback?.(shortId, name);
-      // Send our own intro
-      conn.send({ type: 'join', from: this.participantId, name: this.participantName });
+      opened = true;
+      console.log('[PeerJS] connected to anchor, waiting for peer-list');
+      resolve(); // we're connected
     });
 
-    conn.on('data', (data: any) => this._handleData(data, shortId));
-    conn.on('close', () => this._handleClose(fullId, shortId));
-    conn.on('error', (e: any) => console.warn('[PeerJS incoming conn]', e));
-  }
-
-  /** Outgoing connection we initiated */
-  private _setupOutgoing(conn: any, expectedShortId: string, expectedName: string) {
-    const fullId = `huginn-${this.roomCode}-${expectedShortId}`;
-
-    if (this.isMyself(fullId)) return;
-
-    conn.on('open', () => {
-      if (this.destroyed) { conn.close(); return; }
-      this.connections.set(fullId, conn);
-      this.knownPeers.set(expectedShortId, expectedName);
-      // Fire join event
-      this.onJoinCallback?.(expectedShortId, expectedName);
-      // Send our own intro
-      conn.send({ type: 'join', from: this.participantId, name: this.participantName });
+    conn.on('data', (data: any) => {
+      if (data?.type === 'peer-list') {
+        const peers: Array<{ id: string; name: string }> = data.peers ?? [];
+        console.log('[PeerJS] received peer-list:', peers);
+        for (const p of peers) {
+          if (!this.isMe(p.id)) {
+            this._openDirectConn(p.id, p.name);
+          }
+        }
+      }
     });
 
-    conn.on('data', (data: any) => this._handleData(data, expectedShortId));
-    conn.on('close', () => this._handleClose(fullId, expectedShortId));
     conn.on('error', (e: any) => {
-      // Peer unavailable is expected when joining an empty room
-      if (e?.type !== 'peer-unavailable') console.warn('[PeerJS outgoing conn]', e);
+      if (!opened && attempt < 5 && !this.destroyed && !this.isHost) {
+        console.log(`[PeerJS] anchor connect failed (attempt ${attempt + 1}), retrying...`);
+        setTimeout(() => this._joinViaAnchor(resolve, attempt + 1), 2000);
+      }
     });
   }
 
-  private _handleData(data: any, fromShortId: string) {
-    if (!data || this.isMyself(fromShortId)) return;
+  // ── Direct peer-to-peer connections ──────────────────────────────────────
 
-    if (data.type === 'join') {
-      // Remote peer introduced themselves — update name if we have them
-      const name = data.name || 'Peer';
-      this.knownPeers.set(fromShortId, name);
-      // Don't fire onJoinCallback again — already fired in _setupIncoming/Outgoing
-      return;
-    }
+  private _openDirectConn(shortId: string, name: string) {
+    if (this.isMe(shortId)) return;
+    const fullId = `huginn-${this.roomCode}-${shortId}`;
+    if (this.connections.has(fullId)) return;
 
-    if (data.type === 'peer-list') return; // handled at join time only
+    console.log('[PeerJS] opening direct connection to', shortId);
+    const conn = this.mainPeer.connect(fullId, {
+      metadata: { id: this.participantId, name: this.participantName },
+      reliable: true,
+    });
 
-    this.handlers.forEach((h) => h({ ...data, from: fromShortId }));
+    this._setupDirectConn(conn, shortId, name);
   }
 
-  private _handleClose(fullId: string, shortId: string) {
-    this.connections.delete(fullId);
-    if (!this.isMyself(shortId)) {
-      this.onLeaveCallback?.(shortId);
-    }
+  private _setupDirectConn(conn: any, knownShortId?: string, knownName?: string) {
+    const fullId: string = conn.peer;
+    const shortId = knownShortId ?? this.toShort(fullId);
+
+    // Reject self-connections
+    if (this.isMe(fullId) || this.isMe(shortId)) { conn.close(); return; }
+
+    conn.on('open', () => {
+      if (this.destroyed) { conn.close(); return; }
+      this.connections.set(fullId, conn);
+      const name = knownName ?? (conn.metadata?.name as string) ?? 'Peer';
+      this.peerNames.set(shortId, name);
+      this.onJoinCb?.(shortId, name);
+      // Introduce ourselves
+      conn.send({ type: 'join', from: this.participantId, name: this.participantName });
+    });
+
+    conn.on('data', (data: any) => {
+      if (!data) return;
+      const from: string = data.from ?? shortId;
+      if (this.isMe(from)) return;
+
+      if (data.type === 'join') {
+        // Update name — join is already fired on open
+        if (data.name) this.peerNames.set(shortId, data.name);
+        return;
+      }
+      this.handlers.forEach((h) => h({ ...data, from: shortId }));
+    });
+
+    conn.on('close', () => {
+      this.connections.delete(fullId);
+      if (!this.isMe(shortId)) this.onLeaveCb?.(shortId);
+    });
+
+    conn.on('error', (e: any) => {
+      if (e?.type !== 'peer-unavailable') console.warn('[PeerJS direct conn]', e);
+    });
   }
 
-  // ── Broadcast ──────────────────────────────────────────────────────────────
+  // ── Broadcast ─────────────────────────────────────────────────────────────
 
-  broadcast(msg: Omit<SignalMessage, 'from'> & { from: string }) {
+  broadcast(msg: SignalMessage) {
     this.connections.forEach((conn) => {
       if (conn.open) conn.send(msg);
     });
   }
 
-  // ── Teardown ───────────────────────────────────────────────────────────────
+  // ── Destroy ───────────────────────────────────────────────────────────────
 
   destroy() {
     this.destroyed = true;
-    this.connections.forEach((conn) => conn.close());
+    this.connections.forEach((c) => c.close());
     this.connections.clear();
-    this.peer?.destroy();
-    this.rosterPeer?.destroy();
-    this.rosterPeer = null;
+    this.mainPeer?.destroy();
+    this.anchorPeer?.destroy();
+    this.anchorPeer = null;
   }
 }
