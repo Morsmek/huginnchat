@@ -1,33 +1,51 @@
 /**
- * Room management and URL parsing utilities
+ * Room management utilities — 10-char code based system.
+ *
+ * The room code IS the shared secret. Everyone who knows the code
+ * can derive the same encryption key and join the same PeerJS channel.
+ * No URLs, no SDP copy-paste, no server state.
  */
 
-import {
-  generateEncryptionKey,
-  generateRoomId,
-  deriveKeyFromPassword,
-} from './crypto';
+import { deriveKeyFromPassword, generateRoomId } from './crypto';
 import type { RoomConfig } from './types';
 
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I confusion
+
 /**
- * Create a new room with generated credentials
+ * Generate a random 10-character human-friendly room code.
  */
-export async function createRoom(
-  participantName: string,
-  customRoomName?: string,
-  password?: string,
-): Promise<RoomConfig> {
-  const roomId = customRoomName || generateRoomId();
+export function generateRoomCode(): string {
+  const arr = new Uint8Array(10);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, (b) => CODE_CHARS[b % CODE_CHARS.length]).join('');
+}
+
+/**
+ * Normalise a user-typed code: uppercase, strip spaces/dashes.
+ */
+export function normaliseCode(raw: string): string {
+  return raw.toUpperCase().replace(/[\s\-_]/g, '');
+}
+
+/**
+ * Derive a stable AES-256 encryption key from the room code.
+ * Everyone with the same code gets the same key — zero knowledge.
+ */
+export async function keyFromCode(code: string): Promise<string> {
+  // Use a fixed salt prefix so the derived key is deterministic per code
+  return deriveKeyFromPassword(code, `huginn-room-${code}`);
+}
+
+/**
+ * Create a new room from a fresh code.
+ */
+export async function createRoom(participantName: string): Promise<RoomConfig> {
+  const code = generateRoomCode();
+  const encryptionKey = await keyFromCode(code);
   const participantId = generateRoomId();
 
-  // If password is provided, derive encryption key from it
-  // Otherwise generate a random key
-  const encryptionKey = password
-    ? await deriveKeyFromPassword(password, roomId)
-    : await generateEncryptionKey();
-
   return {
-    roomId,
+    roomId: code,          // roomId == the 10-char code
     encryptionKey,
     participantId,
     participantName,
@@ -35,79 +53,32 @@ export async function createRoom(
 }
 
 /**
- * Generate a shareable room URL
+ * Join a room by code — derives the same key.
  */
-export function generateRoomUrl(
-  config: RoomConfig,
-  includeKey: boolean = true,
-): string {
-  const params = new URLSearchParams({
-    room: config.roomId,
-  });
+export async function joinRoomByCode(
+  code: string,
+  participantName: string,
+): Promise<RoomConfig> {
+  const normalised = normaliseCode(code);
+  const encryptionKey = await keyFromCode(normalised);
+  const participantId = generateRoomId();
 
-  // Only include key in URL if it's a random room without password
-  if (includeKey) {
-    params.set('key', config.encryptionKey);
-  }
-
-  // Point directly to the /room route with hash params
-  return `${window.location.origin}/room#${params.toString()}`;
+  return {
+    roomId: normalised,
+    encryptionKey,
+    participantId,
+    participantName,
+  };
 }
 
 /**
- * Parse room credentials from URL fragment
- */
-export function parseRoomUrl():
-  | { roomId: string; encryptionKey: string }
-  | null {
-  const hash = window.location.hash.slice(1);
-  if (!hash) return null;
-
-  const params = new URLSearchParams(hash);
-  const roomId = params.get('room');
-  const encryptionKey = params.get('key');
-
-  if (!roomId || !encryptionKey) return null;
-
-  return { roomId, encryptionKey };
-}
-
-/**
- * Clear room credentials from URL
- */
-export function clearRoomUrl() {
-  window.location.hash = '';
-}
-
-/**
- * Generate a random participant name
+ * Generate a random participant name.
  */
 export function generateParticipantName(): string {
-  const adjectives = [
-    'Swift',
-    'Brave',
-    'Clever',
-    'Noble',
-    'Wise',
-    'Bold',
-    'Silent',
-    'Mystic',
-  ];
-  const nouns = [
-    'Raven',
-    'Wolf',
-    'Eagle',
-    'Fox',
-    'Hawk',
-    'Bear',
-    'Owl',
-    'Lynx',
-  ];
-
-  const adj =
-    adjectives[Math.floor(Math.random() * adjectives.length)];
+  const adjectives = ['Swift', 'Brave', 'Clever', 'Noble', 'Wise', 'Bold', 'Silent', 'Mystic'];
+  const nouns = ['Raven', 'Wolf', 'Eagle', 'Fox', 'Hawk', 'Bear', 'Owl', 'Lynx'];
+  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
   const noun = nouns[Math.floor(Math.random() * nouns.length)];
   const num = Math.floor(Math.random() * 100);
-
   return `${adj}${noun}${num}`;
 }
