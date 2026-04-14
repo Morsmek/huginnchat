@@ -132,10 +132,32 @@ export default function Index() {
     }
   };
 
-  const handleJoin = () => {
+  const [joinUrl, setJoinUrl] = useState('');
+  const [showJoinInput, setShowJoinInput] = useState(false);
+
+  const handleJoinSubmit = () => {
+    const url = joinUrl.trim();
+    if (!url) return;
+
     const pName = name.trim() || generateParticipantName();
     sessionStorage.setItem('participantName', pName);
-    navigate('/room');
+
+    // If user pasted a full URL, navigate to it preserving the hash
+    try {
+      const parsed = new URL(url);
+      if (parsed.hash) {
+        window.location.href = `${parsed.origin}/room${parsed.hash}`;
+      } else {
+        window.location.href = url;
+      }
+    } catch {
+      // Not a full URL — maybe just a hash fragment
+      navigate(`/room${url.startsWith('#') ? url : '#' + url}`);
+    }
+  };
+
+  const handleJoin = () => {
+    setShowJoinInput((v) => !v);
   };
 
   const inputStyle: React.CSSProperties = {
@@ -504,6 +526,7 @@ export default function Index() {
                   background: 'transparent',
                   transition: 'color var(--transition)',
                   border: 'none',
+                  cursor: 'pointer',
                 }}
                 onMouseEnter={(e) =>
                   (e.currentTarget.style.color = 'var(--text)')
@@ -515,6 +538,57 @@ export default function Index() {
               >
                 Join an existing room <ArrowRight size={13} />
               </button>
+
+              {showJoinInput && (
+                <div className="px-6 pb-5 space-y-2 fade-up">
+                  <p
+                    style={{
+                      fontSize: 'var(--text-xs)',
+                      color: 'var(--text-muted)',
+                      marginBottom: '0.5rem',
+                    }}
+                  >
+                    Paste the room link you received:
+                  </p>
+                  <Input
+                    type="url"
+                    placeholder="https://…/room#room=…&key=…"
+                    value={joinUrl}
+                    onChange={(e) => setJoinUrl(e.target.value)}
+                    onKeyDown={(e) =>
+                      e.key === 'Enter' && handleJoinSubmit()
+                    }
+                    autoFocus
+                    style={{
+                      background: 'var(--surface-2)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text)',
+                      borderRadius: 'var(--radius-md)',
+                      padding: '0.6rem 0.85rem',
+                      fontSize: 'var(--text-sm)',
+                    }}
+                  />
+                  <button
+                    onClick={handleJoinSubmit}
+                    disabled={!joinUrl.trim()}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 font-semibold"
+                    style={{
+                      background: joinUrl.trim()
+                        ? 'var(--accent)'
+                        : 'var(--surface-dynamic)',
+                      color: joinUrl.trim()
+                        ? 'var(--accent-on)'
+                        : 'var(--text-faint)',
+                      fontSize: 'var(--text-sm)',
+                      cursor: joinUrl.trim() ? 'pointer' : 'not-allowed',
+                      transition: 'all var(--transition)',
+                      border: 'none',
+                    }}
+                  >
+                    Join room <ArrowRight size={13} />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 

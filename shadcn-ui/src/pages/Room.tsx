@@ -24,7 +24,7 @@ import {
 import SecurityStatus from '@/components/SecurityStatus';
 import ChatMessage from '@/components/ChatMessage';
 import ParticipantList from '@/components/ParticipantList';
-import { parseRoomUrl, clearRoomUrl, generateRoomUrl } from '@/lib/room';
+import { parseRoomUrl, clearRoomUrl, generateRoomUrl, generateParticipantName } from '@/lib/room';
 import {
   encryptMessage,
   decryptMessage,
@@ -109,9 +109,13 @@ export default function Room() {
   const [participantId] = useState(
     () => sessionStorage.getItem('participantId') || generateRoomId(),
   );
-  const [participantName] = useState(
-    () => sessionStorage.getItem('participantName') || 'Anonymous',
+  const [participantName, setParticipantName] = useState(
+    () => sessionStorage.getItem('participantName') || '',
   );
+
+  // name prompt — shown when joining via a shared link without a stored name
+  const [showNamePrompt, setShowNamePrompt] = useState(false);
+  const [nameInput, setNameInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [inputMessage, setInputMessage] = useState('');
@@ -142,6 +146,14 @@ export default function Room() {
   const encKeyRef = useRef<string>('');
 
   useEffect(() => {
+    // If joining via shared URL link and no name is stored, show the name prompt first
+    const hasUrlConfig = parseRoomUrl() !== null;
+    const hasStoredName = !!sessionStorage.getItem('participantName');
+    if (hasUrlConfig && !hasStoredName) {
+      setShowNamePrompt(true);
+      return;
+    }
+
     initializeRoom();
 
     return () => {
@@ -153,7 +165,10 @@ export default function Room() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const initializeRoom = async () => {
+  const initializeRoom = async (resolvedName?: string) => {
+    // Use the resolved name (from name prompt) or the current state value
+    const effectiveName = resolvedName || participantName || generateParticipantName();
+
     let config = parseRoomUrl();
 
     if (!config) {
@@ -169,7 +184,7 @@ export default function Room() {
           roomId,
           encryptionKey,
           participantId,
-          participantName,
+          participantName: effectiveName,
         };
         const url = storedPw
           ? generateRoomUrl(fullConfig, false)
@@ -183,7 +198,7 @@ export default function Room() {
         roomId: config.roomId,
         encryptionKey: config.encryptionKey,
         participantId,
-        participantName,
+        participantName: effectiveName,
       };
       setShareableUrl(generateRoomUrl(fullConfig, true));
     }
@@ -201,7 +216,26 @@ export default function Room() {
       return;
     }
 
-    await setupRoom(config);
+    await setupRoom(config, effectiveName);
+  };
+
+  const handleNameSubmit = () => {
+    const name = nameInput.trim() || generateParticipantName();
+    sessionStorage.setItem('participantName', name);
+    sessionStorage.setItem('participantId', participantId);
+    setParticipantName(name);
+    setShowNamePrompt(false);
+
+    // Check if this is also a password-protected room
+    const hash = window.location.hash.slice(1);
+    const params = new URLSearchParams(hash);
+    const hasKey = params.has('key');
+    if (!hasKey && params.has('room')) {
+      // Password-protected room — show password prompt next
+      setShowPasswordPrompt(true);
+    } else {
+      initializeRoom(name);
+    }
   };
 
   const handlePasswordSubmit = async () => {
@@ -221,18 +255,20 @@ export default function Room() {
       sessionStorage.setItem('roomPassword', roomPassword.trim());
       setShowPasswordPrompt(false);
       setIsPasswordProtected(true);
-      await setupRoom({ roomId, encryptionKey });
+      const name = participantName || generateParticipantName();
+      await setupRoom({ roomId, encryptionKey }, name);
     } catch {
       toast.error('Failed to join room');
     }
   };
 
-  const setupRoom = async (config: { roomId: string; encryptionKey: string }) => {
+  const setupRoom = async (config: { roomId: string; encryptionKey: string }, effectiveName?: string) => {
+    const name = effectiveName || participantName || generateParticipantName();
     setRoomConfig(config);
     encKeyRef.current = config.encryptionKey;
     setIsEncrypted(true);
 
-    const rtc = new WebRTCManager(config.roomId, participantId, participantName);
+    const rtc = new WebRTCManager(config.roomId, participantId, name);
     rtcRef.current = rtc;
 
     rtc.onMessage(async (fromId, msg: WebRTCMessage) => {
@@ -268,7 +304,7 @@ export default function Room() {
         addParticipant(d.id, d.name);
         rtc.broadcast({
           type: 'participant-list',
-          data: { id: participantId, name: participantName },
+          data: { id: participantId, name },
         });
       } else if (msg.type === 'participant-list') {
         const d = msg.data as { id: string; name: string };
@@ -279,12 +315,12 @@ export default function Room() {
       }
     });
 
-    rtc.onConnectionChange((fromId, connected, name) => {
+    rtc.onConnectionChange((fromId, connected, peerName) => {
       if (connected) {
-        addParticipant(fromId, name || 'Peer');
+        addParticipant(fromId, peerName || 'Peer');
         rtc.broadcast({
           type: 'participant-join',
-          data: { id: participantId, name: participantName },
+          data: { id: participantId, name },
         });
       } else {
         setParticipants((prev) =>
@@ -300,7 +336,7 @@ export default function Room() {
     setParticipants([
       {
         id: participantId,
-        name: participantName,
+        name,
         connected: true,
         joinedAt: Date.now(),
       },
@@ -312,7 +348,7 @@ export default function Room() {
         timestamp: Date.now(),
         sender: 'system',
         senderName: 'System',
-        content: `Welcome, ${participantName}. All messages are AES-256-GCM encrypted in your browser — nothing is stored or transmitted in plaintext.`,
+        content: `Welcome, ${name}. All messages are AES-256-GCM encrypted in your browser — nothing is stored or transmitted in plaintext.`,
         iv: '',
       },
     ]);
@@ -472,6 +508,91 @@ export default function Room() {
     borderRadius: 'var(--radius-xl)',
     outline: 'none',
   };
+
+  if (showNamePrompt) {
+    return (
+      <div
+        className="h-screen flex items-center justify-center p-4"
+        style={{
+          background: 'var(--bg)',
+          fontFamily: 'var(--font-body)',
+        }}
+      >
+        <div className="w-full max-w-sm fade-up">
+          <div
+            className="rounded-2xl p-8"
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              boxShadow: 'var(--shadow-lg)',
+            }}
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{
+                  background: 'var(--accent-subtle)',
+                  border: '1px solid rgba(212,135,10,0.3)',
+                }}
+              >
+                <UserPlus
+                  size={18}
+                  style={{ color: 'var(--accent)' }}
+                />
+              </div>
+              <div>
+                <h2
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 'var(--text-lg)',
+                    fontWeight: 800,
+                    color: 'var(--text)',
+                  }}
+                >
+                  You're invited!
+                </h2>
+                <p
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  Enter a name to join the room
+                </p>
+              </div>
+            </div>
+            <Input
+              type="text"
+              placeholder="Your name (or leave blank for a Norse alias)"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              onKeyDown={(e) =>
+                e.key === 'Enter' && handleNameSubmit()
+              }
+              autoFocus
+              className="mb-4 w-full"
+              style={{
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border)',
+                color: 'var(--text)',
+                borderRadius: 'var(--radius-md)',
+                padding: '0.6rem 0.85rem',
+                fontSize: 'var(--text-sm)',
+              }}
+            />
+            <div className="flex gap-2">
+              <Btn onClick={handleNameSubmit} fullWidth>
+                Join room <ChevronRight size={14} />
+              </Btn>
+              <Btn onClick={() => navigate('/')} variant="ghost">
+                Cancel
+              </Btn>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (showPasswordPrompt) {
     return (
@@ -660,6 +781,28 @@ export default function Room() {
           {/* messages */}
           <ScrollArea className="flex-1">
             <div className="py-4 space-y-0.5">
+              {/* Cross-device connection guidance banner */}
+              {participants.filter((p) => p.connected).length === 1 && messages.length <= 1 && (
+                <div
+                  className="mx-4 mb-3 rounded-xl p-4"
+                  style={{
+                    background: 'var(--accent-subtle)',
+                    border: '1px solid rgba(212,135,10,0.3)',
+                  }}
+                >
+                  <p
+                    style={{
+                      fontSize: 'var(--text-xs)',
+                      color: 'var(--text-muted)',
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    <span style={{ color: 'var(--accent)', fontWeight: 700 }}>Waiting for peers.</span>
+                    {' '}If you're on the same device/browser, share the URL and open it in another tab — it auto-connects.
+                    For <strong>cross-device</strong> connections, click <strong>Add peer</strong> above and exchange the connection codes manually.
+                  </p>
+                </div>
+              )}
               {messages.map((msg) => (
                 <ChatMessage
                   key={msg.id}

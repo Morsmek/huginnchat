@@ -117,11 +117,26 @@ export class WebRTCManager {
 
   // ── Manual (copy-paste) path ───────────────────────────────────────────────
 
+  // Tracks the tempId used when generating a manual offer so we can remap it
+  // to the real remote peer ID when the answer arrives.
+  private pendingManualTempId: string | null = null;
+
   /** Generate a manual offer blob for cross-device pairing. */
   async generateManualOffer(): Promise<string> {
+    // Clean up any previous pending manual offer before creating a new one
+    if (this.pendingManualTempId) {
+      this.connections.get(this.pendingManualTempId)?.close();
+      this.connections.delete(this.pendingManualTempId);
+      this.dataChannels.delete(this.pendingManualTempId);
+      this.pendingManualTempId = null;
+    }
+
     const tempId = `manual-${Date.now()}`;
+    this.pendingManualTempId = tempId;
+
     const pc = this.createPC(tempId);
     const ch = pc.createDataChannel('chat', { ordered: true });
+    // Don't pass name yet — we'll learn the remote name from the answer blob
     this.setupChannel(tempId, ch);
 
     const offer = await pc.createOffer();
@@ -145,6 +160,13 @@ export class WebRTCManager {
     const blob = decodeSignal(encodedOffer) as ManualOffer;
     if (!blob || blob.type !== 'offer') throw new Error('Invalid offer');
 
+    // Close any existing connection to this peer before creating a new one
+    if (this.connections.has(blob.from)) {
+      this.connections.get(blob.from)?.close();
+      this.connections.delete(blob.from);
+      this.dataChannels.delete(blob.from);
+    }
+
     const pc = this.createPC(blob.from);
     await pc.setRemoteDescription({ type: 'offer', sdp: blob.sdp });
     for (const c of blob.candidates) await pc.addIceCandidate(c).catch(() => {});
@@ -153,8 +175,9 @@ export class WebRTCManager {
     await pc.setLocalDescription(answer);
     const { sdp, candidates } = await gatherCompleteDescription(pc);
 
-    // Notify UI that a peer with this name is connecting
-    this.onConnectionChangeCallback?.(blob.from, false, blob.fromName);
+    // The ondatachannel event will fire and call setupChannel with blob.from + blob.fromName
+    // We pre-register the name so it's available when the channel opens
+    pc.ondatachannel = ({ channel }) => this.setupChannel(blob.from, channel, blob.fromName);
 
     const answerBlob: ManualAnswer = {
       type: 'answer',
@@ -173,12 +196,28 @@ export class WebRTCManager {
     if (!blob || blob.type !== 'answer') throw new Error('Invalid answer');
     if (blob.to !== this.peerId) throw new Error('Answer not for this peer');
 
-    const pc = this.connections.get(blob.from) || this.connections.values().next().value;
-    if (!pc) throw new Error('No pending connection');
+    // Find the pending PC — it was stored under tempId, not blob.from
+    const tempId = this.pendingManualTempId;
+    const pc = tempId ? this.connections.get(tempId) : null;
+    if (!pc) throw new Error('No pending connection found — generate a new offer');
+
+    // Remap the connection and data channel from tempId to the real remote peer ID
+    if (tempId && tempId !== blob.from) {
+      this.connections.delete(tempId);
+      this.connections.set(blob.from, pc);
+
+      const ch = this.dataChannels.get(tempId);
+      if (ch) {
+        this.dataChannels.delete(tempId);
+        // Re-register channel under the real peer ID with the peer's name
+        this.setupChannel(blob.from, ch, blob.fromName);
+      }
+      this.pendingManualTempId = null;
+    }
 
     await pc.setRemoteDescription({ type: 'answer', sdp: blob.sdp });
     for (const c of blob.candidates) await pc.addIceCandidate(c).catch(() => {});
-    this.onConnectionChangeCallback?.(blob.from, false, blob.fromName);
+    // Connection change (open) will fire via the channel's onopen handler
   }
 
   // ── Shared helpers ─────────────────────────────────────────────────────────
