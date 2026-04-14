@@ -975,37 +975,86 @@ export default function Room() {
               >
                 {m === 'generate'
                   ? 'I want to invite'
-                  : 'I received a code'}
+                  : 'I received a link'}
               </button>
             ))}
           </div>
 
           {pairMode === 'generate' && (
             <div className="space-y-4">
+              {/* Step 1 — share the room link */}
               {pairStep === 'start' && (
                 <>
-                  <p
+                  <div
                     style={{
-                      fontSize: 'var(--text-xs)',
-                      color: 'var(--text-muted)',
-                      marginBottom: '0.5rem',
+                      background: 'var(--surface-offset)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-xl)',
+                      padding: '0.85rem 1rem',
                     }}
                   >
-                    Generate a connection code and share it.
-                    They'll send back an answer to complete
-                    the handshake.
-                  </p>
-                  <Btn
-                    onClick={handleGenerateOffer}
-                    fullWidth
-                  >
-                    Generate connection code
+                    <p style={{ fontSize: 'var(--text-xs)', color: 'var(--accent)', fontWeight: 700, marginBottom: '0.25rem' }}>
+                      Step 1 of 2 — Send the invite link
+                    </p>
+                    <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                      Share this link with the person you want to invite. Once they've opened it and entered the room, come back here and click Next.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <code
+                        style={{
+                          flex: 1,
+                          fontSize: '0.62rem',
+                          color: 'var(--text-faint)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          display: 'block',
+                        }}
+                        title={shareableUrl}
+                      >
+                        {shareableUrl}
+                      </code>
+                      <button
+                        onClick={() => copyToClipboard(shareableUrl)}
+                        aria-label="Copy invite link"
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg flex-shrink-0"
+                        style={{
+                          background: 'var(--accent)',
+                          color: 'var(--accent-on)',
+                          fontSize: '0.65rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          border: 'none',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {copied ? <Check size={10} /> : <Copy size={10} />}
+                        {copied ? 'Copied!' : 'Copy link'}
+                      </button>
+                    </div>
+                  </div>
+                  <Btn onClick={handleGenerateOffer} fullWidth>
+                    They're in — generate connection code →
                   </Btn>
                 </>
               )}
 
+              {/* Step 2 — exchange SDP */}
               {pairStep === 'waiting-answer' && (
                 <>
+                  <div
+                    style={{
+                      background: 'var(--surface-offset)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-xl)',
+                      padding: '0.6rem 0.85rem',
+                      marginBottom: '0.25rem',
+                    }}
+                  >
+                    <p style={{ fontSize: 'var(--text-xs)', color: 'var(--accent)', fontWeight: 700 }}>
+                      Step 2 of 2 — Exchange codes
+                    </p>
+                  </div>
                   <div>
                     <p
                       style={{
@@ -1014,7 +1063,7 @@ export default function Room() {
                         marginBottom: '0.5rem',
                       }}
                     >
-                      1. Share this code:
+                      1. Send them this connection code (via chat, email, etc.):
                     </p>
                     <div className="relative">
                       <textarea
@@ -1054,7 +1103,7 @@ export default function Room() {
                         marginBottom: '0.5rem',
                       }}
                     >
-                      2. Paste their answer:
+                      2. Paste the answer code they send back:
                     </p>
                     <textarea
                       value={pastedAnswer}
@@ -1091,7 +1140,7 @@ export default function Room() {
                       marginBottom: '0.5rem',
                     }}
                   >
-                    Paste the connection code you received:
+                    Paste the connection code you received from the host:
                   </p>
                   <textarea
                     value={pastedOffer}
@@ -1123,7 +1172,7 @@ export default function Room() {
                       marginBottom: '0.5rem',
                     }}
                   >
-                    Share this answer back:
+                    Send this answer code back to the host:
                   </p>
                   <div className="relative">
                     <textarea
