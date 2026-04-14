@@ -70,7 +70,8 @@
   --shadow-lg: 0 12px 40px rgba(0,0,0,0.55);
   --shadow-xl: 0 24px 64px rgba(0,0,0,0.65);
 
-  /* shadcn HSL compat */
+  /* shadcn HSL compat — NOTE: do NOT redefine --accent or --border here,
+     those are already set above as hex values for the design system. */
   --background:            30 5% 6%;
   --foreground:            36 15% 90%;
   --card:                  30 5% 8%;
@@ -83,11 +84,10 @@
   --secondary-foreground:  36 15% 90%;
   --muted:                 30 5% 13%;
   --muted-foreground:      30 5% 55%;
-  --accent:                30 5% 13%;
-  --accent-foreground:     36 15% 90%;
+  /* --accent and --accent-foreground intentionally omitted — set above as hex */
   --destructive:           0 55% 42%;
   --destructive-foreground:36 15% 90%;
-  --border:                30 5% 22%;
+  /* --border intentionally omitted — set above as hex */
   --input:                 30 5% 13%;
   --ring:                  34 90% 44%;
   --radius:                0.5rem;
