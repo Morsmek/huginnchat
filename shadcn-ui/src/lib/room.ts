@@ -2,7 +2,11 @@
  * Room management and URL parsing utilities
  */
 
-import { generateEncryptionKey, generateRoomId, deriveKeyFromPassword } from './crypto';
+import {
+  generateEncryptionKey,
+  generateRoomId,
+  deriveKeyFromPassword,
+} from './crypto';
 import type { RoomConfig } from './types';
 
 /**
@@ -11,14 +15,14 @@ import type { RoomConfig } from './types';
 export async function createRoom(
   participantName: string,
   customRoomName?: string,
-  password?: string
+  password?: string,
 ): Promise<RoomConfig> {
   const roomId = customRoomName || generateRoomId();
   const participantId = generateRoomId();
-  
+
   // If password is provided, derive encryption key from it
   // Otherwise generate a random key
-  const encryptionKey = password 
+  const encryptionKey = password
     ? await deriveKeyFromPassword(password, roomId)
     : await generateEncryptionKey();
 
@@ -33,23 +37,29 @@ export async function createRoom(
 /**
  * Generate a shareable room URL
  */
-export function generateRoomUrl(config: RoomConfig, includeKey: boolean = true): string {
+export function generateRoomUrl(
+  config: RoomConfig,
+  includeKey: boolean = true,
+): string {
   const params = new URLSearchParams({
     room: config.roomId,
   });
-  
+
   // Only include key in URL if it's a random room without password
   if (includeKey) {
     params.set('key', config.encryptionKey);
   }
-  
-  return `${window.location.origin}/#${params.toString()}`;
+
+  // Point directly to the /room route with hash params
+  return `${window.location.origin}/room#${params.toString()}`;
 }
 
 /**
  * Parse room credentials from URL fragment
  */
-export function parseRoomUrl(): { roomId: string; encryptionKey: string } | null {
+export function parseRoomUrl():
+  | { roomId: string; encryptionKey: string }
+  | null {
   const hash = window.location.hash.slice(1);
   if (!hash) return null;
 
@@ -73,12 +83,31 @@ export function clearRoomUrl() {
  * Generate a random participant name
  */
 export function generateParticipantName(): string {
-  const adjectives = ['Swift', 'Brave', 'Clever', 'Noble', 'Wise', 'Bold', 'Silent', 'Mystic'];
-  const nouns = ['Raven', 'Wolf', 'Eagle', 'Fox', 'Hawk', 'Bear', 'Owl', 'Lynx'];
-  
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const adjectives = [
+    'Swift',
+    'Brave',
+    'Clever',
+    'Noble',
+    'Wise',
+    'Bold',
+    'Silent',
+    'Mystic',
+  ];
+  const nouns = [
+    'Raven',
+    'Wolf',
+    'Eagle',
+    'Fox',
+    'Hawk',
+    'Bear',
+    'Owl',
+    'Lynx',
+  ];
+
+  const adj =
+    adjectives[Math.floor(Math.random() * adjectives.length)];
   const noun = nouns[Math.floor(Math.random() * nouns.length)];
   const num = Math.floor(Math.random() * 100);
-  
+
   return `${adj}${noun}${num}`;
 }
