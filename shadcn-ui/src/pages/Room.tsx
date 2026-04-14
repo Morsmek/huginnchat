@@ -196,18 +196,19 @@ export default function Room() {
         const data = msg.data as { content: string; iv: string; senderName: string; id: string; timestamp: number };
         try {
           const plain = await decryptMessage({ content: data.content, iv: data.iv }, encKeyRef.current);
-          setMessages((prev) => [...prev, {
-            id: data.id, timestamp: data.timestamp, sender: fromId,
-            senderName: data.senderName, content: plain, iv: data.iv,
-          }]);
+          setMessages((prev) => {
+            // Deduplicate by message ID
+            if (prev.some((m) => m.id === data.id)) return prev;
+            return [...prev, {
+              id: data.id, timestamp: data.timestamp, sender: fromId,
+              senderName: data.senderName, content: plain, iv: data.iv,
+            }];
+          });
         } catch { console.error('Decryption failed'); }
-      } else if (msg.type === 'participant-join') {
+      } else if (msg.type === 'participant-announce') {
+        // Remote peer is telling us their identity after connection
         const d = msg.data as { id: string; name: string };
-        addParticipant(d.id, d.name);
-        rtc.broadcast({ type: 'participant-list', data: { id: participantId, name } });
-      } else if (msg.type === 'participant-list') {
-        const d = msg.data as { id: string; name: string };
-        addParticipant(d.id, d.name);
+        if (d.id !== participantId) addParticipant(d.id, d.name);
       } else if (msg.type === 'participant-leave') {
         const d = msg.data as { id: string };
         setParticipants((prev) => prev.filter((p) => p.id !== d.id));
@@ -215,9 +216,11 @@ export default function Room() {
     });
 
     rtc.onConnectionChange((fromId, connected, peerName) => {
+      if (fromId === participantId) return; // never add yourself
       if (connected) {
         addParticipant(fromId, peerName || 'Peer');
-        rtc.broadcast({ type: 'participant-join', data: { id: participantId, name } });
+        // Tell the newly connected peer who we are
+        rtc.broadcast({ type: 'participant-announce', data: { id: participantId, name } });
       } else {
         setParticipants((prev) => prev.map((p) => p.id === fromId ? { ...p, connected: false } : p));
       }
