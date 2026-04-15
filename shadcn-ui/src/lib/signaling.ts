@@ -1,24 +1,24 @@
 /**
- * Signaling — PeerJS for cross-device, BroadcastChannel for same-browser.
+ * Signaling via Cloudflare Worker WebSocket + BroadcastChannel (same browser).
  *
- * Simple approach:
- *   - Every peer registers with ID:  huginn-{roomCode}-{participantId}
- *   - The "host" also registers a second peer with a well-known ID:
- *       huginn-{roomCode}-host
- *   - Joiners connect to huginn-{roomCode}-host to get introductions.
- *   - After intro, all peers connect directly to each other (full mesh).
+ * The Cloudflare Worker at SIGNALING_URL acts as a simple relay:
+ *   - Each peer connects to wss://huginn-signaling.{account}.workers.dev/room/{roomCode}
+ *   - Sends { type: 'hello', id, name } to introduce itself
+ *   - Receives { type: 'peers', peers: [{id, name}] } — existing peers in the room
+ *   - Receives { type: 'peer-joined', id, name } — when someone new joins
+ *   - Receives { type: 'peer-left', id } — when someone disconnects
+ *   - Sends/receives { type: 'signal', to/from, payload } for WebRTC signaling
  *
- * We use the default PeerJS cloud (no custom host params) which is the
- * most reliable option since it's the officially maintained server.
+ * WebRTC data channels carry the actual encrypted chat messages.
+ * BroadcastChannel handles zero-latency same-browser tab connections.
  */
 
-declare const Peer: any;
+const SIGNALING_URL = 'wss://huginn-signaling.morten-6e8.workers.dev';
 
 export type SignalMessage =
-  | { type: 'join';      from: string; name: string }
-  | { type: 'leave';     from: string }
-  | { type: 'chat';      from: string; payload: unknown }
-  | { type: 'peer-list'; peers: Array<{ id: string; name: string }> };
+  | { type: 'join';  from: string; name: string }
+  | { type: 'leave'; from: string }
+  | { type: 'chat';  from: string; payload: unknown };
 
 export type SignalHandler = (msg: SignalMessage) => void;
 
@@ -47,256 +47,313 @@ export class LocalSignalingChannel {
   close() { this.channel.close(); }
 }
 
-// ── PeerJS ───────────────────────────────────────────────────────────────────
+// ── WebRTC + Worker signaling ─────────────────────────────────────────────────
+
+interface PeerState {
+  pc: RTCPeerConnection;
+  dc: RTCDataChannel | null;
+  name: string;
+  makingOffer: boolean;
+  ignoreOffer: boolean;
+}
+
+type PeerEventCallback = (peerId: string, name: string) => void;
+type DisconnectCallback = (peerId: string) => void;
+type MessageCallback = (peerId: string, data: unknown) => void;
+
+const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+];
 
 export class PeerJSSignaling {
-  // Our main peer (unique per participant)
-  private peer: any = null;
-  // Host-only: the well-known "host" peer for this room
-  private hostPeer: any = null;
+  private ws: WebSocket | null = null;
+  private peers = new Map<string, PeerState>();
 
   private readonly roomCode: string;
   private readonly participantId: string;
   private readonly participantName: string;
 
-  private connections = new Map<string, any>(); // fullId -> DataConnection
-  private peerNames  = new Map<string, string>(); // shortId -> name
-
-  private handlers: SignalHandler[] = [];
-  private onJoinCb?:  (shortId: string, name: string) => void;
-  private onLeaveCb?: (shortId: string) => void;
+  private onJoinCb?: PeerEventCallback;
+  private onLeaveCb?: DisconnectCallback;
+  private msgHandlers: SignalHandler[] = [];
 
   private destroyed = false;
-  private amHost    = false;
+  private wsReady = false;
+  private pendingSignals: Array<{ to: string; payload: unknown }> = [];
 
   constructor(roomCode: string, participantId: string, participantName: string) {
-    this.roomCode       = roomCode;
-    this.participantId  = participantId;
+    this.roomCode = roomCode;
+    this.participantId = participantId;
     this.participantName = participantName;
   }
 
-  get myId()   { return `huginn-${this.roomCode}-${this.participantId}`; }
-  get hostId() { return `huginn-${this.roomCode}-host`; }
-
-  private short(fullId: string): string {
-    const pre = `huginn-${this.roomCode}-`;
-    return fullId.startsWith(pre) ? fullId.slice(pre.length) : fullId;
+  onMessage(h: SignalHandler): () => void {
+    this.msgHandlers.push(h);
+    return () => { this.msgHandlers = this.msgHandlers.filter((x) => x !== h); };
   }
-  private isMe(id: string) {
-    return id === this.myId || id === this.participantId;
-  }
-
-  onMessage(h: SignalHandler)              { this.handlers.push(h); }
-  onPeerJoin(cb: (id: string, name: string) => void)  { this.onJoinCb  = cb; }
-  onPeerLeave(cb: (id: string) => void)               { this.onLeaveCb = cb; }
+  onPeerJoin(cb: PeerEventCallback)   { this.onJoinCb  = cb; }
+  onPeerLeave(cb: DisconnectCallback) { this.onLeaveCb = cb; }
 
   // ── Start ──────────────────────────────────────────────────────────────────
 
   start(): Promise<void> {
-    return new Promise((resolve) => {
-      // Use default PeerJS cloud server (no host/port params = uses peerjs.com)
-      this.peer = new Peer(this.myId);
+    return new Promise((resolve, reject) => {
+      const url = `${SIGNALING_URL}/room/${this.roomCode}`;
+      console.log('[Signaling] connecting to', url);
 
-      this.peer.on('open', (id: string) => {
-        console.log('[PeerJS] main peer open:', id);
-        if (this.destroyed) return;
+      let resolved = false;
+      const done = () => { if (!resolved) { resolved = true; resolve(); } };
 
-        // Accept incoming direct connections
-        this.peer.on('connection', (conn: any) => this._onIncoming(conn));
+      const ws = new WebSocket(url);
+      this.ws = ws;
 
-        // Race to become host
-        this._becomeHost(resolve);
-      });
+      ws.onopen = () => {
+        console.log('[Signaling] connected');
+        this.wsReady = true;
+        ws.send(JSON.stringify({ type: 'hello', id: this.participantId, name: this.participantName }));
+        // Flush any signals that were queued before WS opened
+        for (const s of this.pendingSignals) this._wsSend({ type: 'signal', to: s.to, from: this.participantId, payload: s.payload });
+        this.pendingSignals = [];
+        done();
+      };
 
-      this.peer.on('error', (err: any) => {
-        console.warn('[PeerJS main error]', err.type, err.message);
-        if (err.type === 'unavailable-id') {
-          // Our participant ID clashed — extremely unlikely
-          resolve();
-          return;
+      ws.onmessage = (event) => {
+        let msg: any;
+        try { msg = JSON.parse(event.data); } catch { return; }
+        this._handleServerMsg(msg);
+      };
+
+      ws.onerror = (e) => {
+        console.error('[Signaling] WebSocket error', e);
+        if (!resolved) { resolved = true; reject(new Error('WebSocket failed')); }
+      };
+
+      ws.onclose = () => {
+        console.log('[Signaling] WebSocket closed');
+        this.wsReady = false;
+        if (!this.destroyed) {
+          // Auto-reconnect after 2s
+          setTimeout(() => this._reconnect(), 2000);
         }
-        if (err.type === 'peer-unavailable') return; // expected
-        resolve(); // don't block on errors
-      });
+      };
 
-      setTimeout(resolve, 12000); // hard fallback
+      setTimeout(done, 10000);
     });
   }
 
-  // ── Host logic ─────────────────────────────────────────────────────────────
+  private _reconnect() {
+    if (this.destroyed) return;
+    console.log('[Signaling] reconnecting...');
+    this.wsReady = false;
+    const url = `${SIGNALING_URL}/room/${this.roomCode}`;
+    const ws = new WebSocket(url);
+    this.ws = ws;
 
-  private _becomeHost(resolve: () => void) {
-    // Try to register the well-known host peer ID
-    const hp = new Peer(this.hostId);
-
-    hp.on('open', (id: string) => {
-      console.log('[PeerJS] I am the host:', id);
-      this.hostPeer = hp;
-      this.amHost = true;
-      resolve();
-
-      // When a joiner connects to the host peer, send them the peer list
-      hp.on('connection', (conn: any) => {
-        conn.on('open', () => {
-          const joinerShort: string = conn.metadata?.id ?? this.short(conn.peer);
-          const joinerName:  string = conn.metadata?.name ?? 'Peer';
-
-          if (this.isMe(joinerShort)) { conn.close(); return; }
-
-          console.log('[PeerJS host] joiner connected:', joinerShort);
-
-          // Tell the joiner about everyone (including ourselves)
-          const list = [
-            { id: this.participantId, name: this.participantName },
-            ...Array.from(this.peerNames.entries()).map(([id, name]) => ({ id, name })),
-          ].filter(p => p.id !== joinerShort);
-
-          conn.send({ type: 'peer-list', peers: list });
-          // Don't close immediately — wait for message to be sent
-          setTimeout(() => conn.close(), 500);
-
-          // Connect directly to the joiner from our main peer
-          this._directConnect(joinerShort, joinerName);
-        });
-        conn.on('error', () => {});
-      });
-
-      hp.on('error', (e: any) => console.warn('[PeerJS host error]', e.type));
-    });
-
-    hp.on('error', (err: any) => {
-      if (err.type === 'unavailable-id') {
-        // Someone else is the host — we are a joiner
-        console.log('[PeerJS] host taken, joining as peer');
-        hp.destroy();
-        // Wait a moment then connect to host
-        setTimeout(() => this._joinAsClient(resolve), 500);
-        return;
-      }
-      console.warn('[PeerJS host claim error]', err.type);
-      hp.destroy();
-      setTimeout(() => this._joinAsClient(resolve), 500);
-    });
+    ws.onopen = () => {
+      this.wsReady = true;
+      ws.send(JSON.stringify({ type: 'hello', id: this.participantId, name: this.participantName }));
+    };
+    ws.onmessage = (event) => {
+      let msg: any;
+      try { msg = JSON.parse(event.data); } catch { return; }
+      this._handleServerMsg(msg);
+    };
+    ws.onerror = () => {};
+    ws.onclose = () => {
+      this.wsReady = false;
+      if (!this.destroyed) setTimeout(() => this._reconnect(), 3000);
+    };
   }
 
-  // ── Joiner logic ───────────────────────────────────────────────────────────
+  // ── Handle messages from the signaling server ──────────────────────────────
 
-  private _joinAsClient(resolve: () => void, attempt = 0) {
-    if (this.destroyed || this.amHost) return;
-
-    console.log(`[PeerJS] connecting to host (attempt ${attempt + 1})`);
-
-    const conn = this.peer.connect(this.hostId, {
-      metadata: { id: this.participantId, name: this.participantName },
-      reliable: true,
-    });
-
-    let opened = false;
-
-    conn.on('open', () => {
-      opened = true;
-      console.log('[PeerJS] connected to host');
-      resolve();
-    });
-
-    conn.on('data', (data: any) => {
-      if (data?.type === 'peer-list') {
-        const peers: Array<{ id: string; name: string }> = data.peers ?? [];
-        console.log('[PeerJS] got peer-list from host:', peers);
+  private _handleServerMsg(msg: any) {
+    switch (msg.type) {
+      case 'peers': {
+        // List of peers already in the room — initiate WebRTC to each
+        const peers: Array<{ id: string; name: string }> = msg.peers ?? [];
+        console.log('[Signaling] existing peers:', peers);
         for (const p of peers) {
-          if (!this.isMe(p.id)) this._directConnect(p.id, p.name);
+          if (p.id !== this.participantId) {
+            this._getOrCreatePeer(p.id, p.name, true /* polite */);
+          }
+        }
+        break;
+      }
+
+      case 'peer-joined': {
+        const { id, name } = msg as { id: string; name: string };
+        if (id !== this.participantId) {
+          console.log('[Signaling] peer joined:', id, name);
+          this._getOrCreatePeer(id, name, false /* impolite — we were here first */);
+        }
+        break;
+      }
+
+      case 'peer-left': {
+        const { id } = msg as { id: string };
+        console.log('[Signaling] peer left:', id);
+        this._closePeer(id);
+        break;
+      }
+
+      case 'signal': {
+        const { from, payload } = msg as { from: string; payload: any };
+        if (from !== this.participantId) {
+          this._handleSignal(from, payload);
+        }
+        break;
+      }
+    }
+  }
+
+  // ── WebRTC peer management ─────────────────────────────────────────────────
+
+  private _getOrCreatePeer(peerId: string, name: string, polite: boolean): PeerState {
+    if (this.peers.has(peerId)) return this.peers.get(peerId)!;
+
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const state: PeerState = { pc, dc: null, name, makingOffer: false, ignoreOffer: false };
+    this.peers.set(peerId, state);
+
+    // ICE candidates → forward via signaling server
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) {
+        this._sendSignal(peerId, { ice: candidate });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] ${peerId} state:`, pc.connectionState);
+      if (pc.connectionState === 'connected') {
+        // Connection established — data channel should be open
+      }
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        this._closePeer(peerId);
+      }
+    };
+
+    pc.onnegotiationneeded = async () => {
+      try {
+        state.makingOffer = true;
+        await pc.setLocalDescription();
+        this._sendSignal(peerId, { sdp: pc.localDescription });
+      } catch (e) {
+        console.error('[WebRTC] negotiation failed', e);
+      } finally {
+        state.makingOffer = false;
+      }
+    };
+
+    // Data channel for receiving (the offerer creates it; answerer receives via ondatachannel)
+    pc.ondatachannel = (event) => {
+      this._setupDataChannel(peerId, event.channel);
+    };
+
+    // If we are the offerer (not polite = we arrived second / peer-joined event)
+    if (!polite) {
+      const dc = pc.createDataChannel('chat', { ordered: true });
+      this._setupDataChannel(peerId, dc);
+      state.dc = dc;
+    }
+
+    return state;
+  }
+
+  private _setupDataChannel(peerId: string, dc: RTCDataChannel) {
+    const state = this.peers.get(peerId);
+    if (state) state.dc = dc;
+
+    dc.onopen = () => {
+      console.log('[WebRTC] data channel open with', peerId);
+      const name = this.peers.get(peerId)?.name ?? 'Peer';
+      this.onJoinCb?.(peerId, name);
+    };
+
+    dc.onclose = () => {
+      console.log('[WebRTC] data channel closed with', peerId);
+    };
+
+    dc.onmessage = ({ data }) => {
+      try {
+        const msg = JSON.parse(data);
+        this.msgHandlers.forEach(h => h({ type: 'chat', from: peerId, payload: msg }));
+      } catch {}
+    };
+  }
+
+  private async _handleSignal(fromId: string, payload: any) {
+    const state = this._getOrCreatePeer(fromId, 'Peer', true);
+    const pc = state.pc;
+
+    try {
+      if (payload.sdp) {
+        const offerCollision =
+          payload.sdp.type === 'offer' &&
+          (state.makingOffer || pc.signalingState !== 'stable');
+
+        state.ignoreOffer = offerCollision;
+        if (state.ignoreOffer) return;
+
+        await pc.setRemoteDescription(payload.sdp);
+
+        if (payload.sdp.type === 'offer') {
+          await pc.setLocalDescription();
+          this._sendSignal(fromId, { sdp: pc.localDescription });
+        }
+      } else if (payload.ice) {
+        try {
+          await pc.addIceCandidate(payload.ice);
+        } catch (e) {
+          if (!state.ignoreOffer) throw e;
         }
       }
-    });
-
-    conn.on('error', (e: any) => {
-      console.warn('[PeerJS joiner error]', e.type);
-      if (!opened && attempt < 4 && !this.destroyed && !this.amHost) {
-        setTimeout(() => this._joinAsClient(resolve, attempt + 1), 2500);
-      }
-    });
-
-    conn.on('close', () => {
-      if (!opened && attempt < 4 && !this.destroyed && !this.amHost) {
-        setTimeout(() => this._joinAsClient(resolve, attempt + 1), 2500);
-      }
-    });
+    } catch (e) {
+      console.error('[WebRTC] signal handling error', e);
+    }
   }
 
-  // ── Direct peer connections ────────────────────────────────────────────────
-
-  private _directConnect(shortId: string, name: string) {
-    if (this.isMe(shortId)) return;
-    const fullId = `huginn-${this.roomCode}-${shortId}`;
-    if (this.connections.has(fullId)) return;
-
-    console.log('[PeerJS] direct connect to:', shortId);
-
-    const conn = this.peer.connect(fullId, {
-      metadata: { id: this.participantId, name: this.participantName },
-      reliable: true,
-    });
-
-    this._setupConn(conn, shortId, name);
+  private _closePeer(peerId: string) {
+    const state = this.peers.get(peerId);
+    if (!state) return;
+    state.dc?.close();
+    state.pc.close();
+    this.peers.delete(peerId);
+    this.onLeaveCb?.(peerId);
   }
 
-  private _onIncoming(conn: any) {
-    const fullId  = conn.peer as string;
-    const shortId = this.short(fullId);
-    if (this.isMe(fullId) || shortId === 'host') { conn.close(); return; }
-    console.log('[PeerJS] incoming connection from:', shortId);
-    this._setupConn(conn, shortId, conn.metadata?.name);
+  // ── Sending ────────────────────────────────────────────────────────────────
+
+  private _sendSignal(to: string, payload: unknown) {
+    const msg = { type: 'signal', to, from: this.participantId, payload };
+    if (this.wsReady && this.ws) {
+      this._wsSend(msg);
+    } else {
+      this.pendingSignals.push({ to, payload });
+    }
   }
 
-  private _setupConn(conn: any, shortId: string, name?: string) {
-    if (this.isMe(shortId)) { conn.close(); return; }
-    const fullId = `huginn-${this.roomCode}-${shortId}`;
-
-    conn.on('open', () => {
-      if (this.destroyed) { conn.close(); return; }
-      if (this.connections.has(fullId)) { conn.close(); return; } // duplicate
-      this.connections.set(fullId, conn);
-      const resolvedName = name ?? conn.metadata?.name ?? 'Peer';
-      this.peerNames.set(shortId, resolvedName);
-      console.log('[PeerJS] direct connection open with:', shortId);
-      this.onJoinCb?.(shortId, resolvedName);
-      conn.send({ type: 'join', from: this.participantId, name: this.participantName });
-    });
-
-    conn.on('data', (data: any) => {
-      if (!data || this.isMe(data.from ?? shortId)) return;
-      if (data.type === 'join') {
-        if (data.name) this.peerNames.set(shortId, data.name);
-        return;
-      }
-      if (data.type === 'peer-list') return;
-      this.handlers.forEach(h => h({ ...data, from: shortId }));
-    });
-
-    conn.on('close', () => {
-      this.connections.delete(fullId);
-      if (!this.isMe(shortId)) this.onLeaveCb?.(shortId);
-    });
-
-    conn.on('error', (e: any) => {
-      if (e?.type !== 'peer-unavailable') console.warn('[PeerJS conn]', e);
-    });
+  private _wsSend(data: unknown) {
+    try {
+      this.ws?.send(JSON.stringify(data));
+    } catch {}
   }
-
-  // ── Broadcast ──────────────────────────────────────────────────────────────
 
   broadcast(msg: SignalMessage) {
-    this.connections.forEach((conn) => {
-      if (conn.open) conn.send(msg);
+    // Send chat data over WebRTC data channels
+    this.peers.forEach((state, peerId) => {
+      if (state.dc?.readyState === 'open') {
+        try { state.dc.send(JSON.stringify((msg as any).payload ?? msg)); } catch {}
+      }
     });
   }
 
   destroy() {
     this.destroyed = true;
-    this.connections.forEach(c => c.close());
-    this.connections.clear();
-    this.peer?.destroy();
-    this.hostPeer?.destroy();
-    this.hostPeer = null;
+    this.peers.forEach((_, id) => this._closePeer(id));
+    this.ws?.close();
+    this.ws = null;
   }
 }
