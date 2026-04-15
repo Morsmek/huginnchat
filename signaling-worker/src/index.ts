@@ -1,17 +1,16 @@
 /**
- * Huginn Signaling Worker
+ * Huginn Signaling Worker — Cloudflare Durable Object
  *
- * A Cloudflare Worker using Durable Objects to relay WebRTC signaling
- * messages between peers in the same room.
+ * Uses server.accept() (NOT state.acceptWebSocket) so the Durable Object
+ * stays alive in memory between messages and the `peers` Map persists.
  *
  * Flow:
- *   1. Peer connects via WebSocket: wss://worker.../room/{roomCode}
- *   2. Peer sends { type: 'hello', id: participantId, name: string }
- *   3. Worker tells all existing peers in the room about the new peer
- *   4. Worker tells the new peer about all existing peers
- *   5. Peers exchange { type: 'signal', to: id, data: any } messages
- *      which the worker forwards to the correct recipient
- *   6. On disconnect, all peers are notified
+ *   1. Peer connects: wss://huginn-signaling.morten-6e8.workers.dev/room/{code}
+ *   2. Peer sends { type: 'hello', id, name }
+ *   3. Worker sends back { type: 'peers', peers: [{id,name},...] }
+ *   4. Worker broadcasts { type: 'peer-joined', id, name } to others
+ *   5. Peers exchange { type: 'signal', to, from, payload } — relayed directly
+ *   6. On disconnect → { type: 'peer-left', id } broadcast
  */
 
 export interface Env {
@@ -24,7 +23,6 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         headers: {
@@ -35,11 +33,8 @@ export default {
       });
     }
 
-    // Route: /room/{roomCode}
-    const match = url.pathname.match(/^\/room\/([A-Z0-9]{1,20})$/i);
-    if (!match) {
-      return new Response('Not found', { status: 404 });
-    }
+    const match = url.pathname.match(/^\/room\/([A-Za-z0-9]{1,20})$/);
+    if (!match) return new Response('Not found', { status: 404 });
 
     const roomCode = match[1].toUpperCase();
     const id = env.ROOMS.idFromName(roomCode);
@@ -48,7 +43,7 @@ export default {
   },
 };
 
-// ── Durable Object: one instance per room ───────────────────────────────────
+// ── Durable Object ───────────────────────────────────────────────────────────
 
 interface PeerInfo {
   id: string;
@@ -57,21 +52,34 @@ interface PeerInfo {
 }
 
 export class Room {
-  private peers = new Map<string, PeerInfo>(); // participantId -> PeerInfo
-  private state: DurableObjectState;
+  // In-memory map — persists as long as the DO is alive (not hibernating)
+  private peers = new Map<string, PeerInfo>();
 
-  constructor(state: DurableObjectState) {
-    this.state = state;
-  }
+  constructor(private state: DurableObjectState) {}
 
   async fetch(request: Request): Promise<Response> {
-    const upgradeHeader = request.headers.get('Upgrade');
-    if (upgradeHeader !== 'websocket') {
-      return new Response('Expected WebSocket upgrade', { status: 426 });
+    if (request.headers.get('Upgrade') !== 'websocket') {
+      return new Response('Expected WebSocket', { status: 426 });
     }
 
     const { 0: client, 1: server } = new WebSocketPair();
-    this.state.acceptWebSocket(server);
+
+    // IMPORTANT: use server.accept() not state.acceptWebSocket()
+    // acceptWebSocket() enables hibernation which wipes in-memory state between messages.
+    // server.accept() keeps the DO alive and the peers Map intact.
+    server.accept();
+
+    server.addEventListener('message', (event: MessageEvent) => {
+      this._onMessage(server, typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data as ArrayBuffer));
+    });
+
+    server.addEventListener('close', () => {
+      this._onClose(server);
+    });
+
+    server.addEventListener('error', () => {
+      this._onClose(server);
+    });
 
     return new Response(null, {
       status: 101,
@@ -80,48 +88,36 @@ export class Room {
     });
   }
 
-  // ── WebSocket event handlers (called by the runtime) ──────────────────────
-
-  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+  private _onMessage(ws: WebSocket, raw: string) {
     let data: any;
-    try {
-      data = JSON.parse(typeof message === 'string' ? message : new TextDecoder().decode(message));
-    } catch {
-      return;
-    }
+    try { data = JSON.parse(raw); } catch { return; }
 
     if (data.type === 'hello') {
-      // New peer introducing itself
       const { id, name } = data as { id: string; name: string };
       if (!id) return;
 
-      // Tell this new peer about everyone already in the room
+      // Send this peer the list of everyone already here
       const existing = Array.from(this.peers.values()).map(p => ({ id: p.id, name: p.name }));
       this._send(ws, { type: 'peers', peers: existing });
 
-      // Tell everyone else about the new peer
+      // Tell everyone else
       this._broadcast({ type: 'peer-joined', id, name }, id);
 
-      // Store them
+      // Register
       this.peers.set(id, { id, name, ws });
 
     } else if (data.type === 'signal') {
-      // Relay a signaling message to a specific peer
-      const { to, from, payload } = data as { to: string; from: string; payload: any };
+      const { to, from, payload } = data as { to: string; from: string; payload: unknown };
       const target = this.peers.get(to);
-      if (target) {
-        this._send(target.ws, { type: 'signal', from, payload });
-      }
+      if (target) this._send(target.ws, { type: 'signal', from, payload });
 
     } else if (data.type === 'broadcast') {
-      // Relay to all other peers
-      const { from, payload } = data as { from: string; payload: any };
+      const { from, payload } = data as { from: string; payload: unknown };
       this._broadcast({ type: 'signal', from, payload }, from);
     }
   }
 
-  async webSocketClose(ws: WebSocket) {
-    // Find which peer this was and remove them
+  private _onClose(ws: WebSocket) {
     for (const [id, peer] of this.peers.entries()) {
       if (peer.ws === ws) {
         this.peers.delete(id);
@@ -131,23 +127,13 @@ export class Room {
     }
   }
 
-  async webSocketError(ws: WebSocket) {
-    await this.webSocketClose(ws);
-  }
-
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
   private _send(ws: WebSocket, data: unknown) {
-    try {
-      ws.send(JSON.stringify(data));
-    } catch {}
+    try { ws.send(JSON.stringify(data)); } catch {}
   }
 
   private _broadcast(data: unknown, excludeId?: string) {
     for (const peer of this.peers.values()) {
-      if (peer.id !== excludeId) {
-        this._send(peer.ws, data);
-      }
+      if (peer.id !== excludeId) this._send(peer.ws, data);
     }
   }
 }
