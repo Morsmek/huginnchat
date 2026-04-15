@@ -12,6 +12,7 @@ export interface Participant {
   name: string;
   connected: boolean;
   joinedAt: number;
+  isTyping?: boolean;
 }
 
 export interface RoomConfig {
@@ -22,6 +23,6 @@ export interface RoomConfig {
 }
 
 export interface WebRTCMessage {
-  type: 'message' | 'participant-join' | 'participant-leave' | 'participant-list';
+  type: 'message' | 'participant-announce' | 'participant-leave' | 'typing';
   data: unknown;
 }
