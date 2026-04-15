@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Copy, LogOut, Lock, Check, RefreshCw } from 'lucide-react';
+import { Send, Copy, LogOut, Lock, Check } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
@@ -37,27 +37,10 @@ function Btn({
   return <button onClick={onClick} disabled={disabled} style={{ ...base, ...variants[variant] }}>{children}</button>;
 }
 
-// ── Room code display with rotation ────────────────────────────────────────
+// ── Room code display ────────────────────────────────────────────────────────
 
-const CODE_TTL = 60; // seconds before the displayed code rotates
-
-function RoomCodeDisplay({ roomCode, onRotate }: { roomCode: string; onRotate: () => void }) {
+function RoomCodeDisplay({ roomCode }: { roomCode: string }) {
   const [copied, setCopied] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(CODE_TTL);
-
-  useEffect(() => {
-    setSecondsLeft(CODE_TTL);
-    const interval = setInterval(() => {
-      setSecondsLeft((s) => {
-        if (s <= 1) {
-          onRotate();
-          return CODE_TTL;
-        }
-        return s - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [roomCode, onRotate]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(roomCode);
@@ -97,19 +80,6 @@ function RoomCodeDisplay({ roomCode, onRotate }: { roomCode: string; onRotate: (
             {copied ? 'Copied!' : 'Copy'}
           </button>
         </div>
-      </div>
-      {/* Countdown ring */}
-      <div
-        title={`Code refreshes in ${secondsLeft}s`}
-        style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}
-      >
-        <RefreshCw
-          size={11}
-          style={{ color: 'var(--text-faint)', opacity: secondsLeft < 10 ? 1 : 0.4 }}
-        />
-        <span style={{ fontSize: '0.6rem', color: 'var(--text-faint)', fontVariantNumeric: 'tabular-nums' }}>
-          {secondsLeft}s
-        </span>
       </div>
     </div>
   );
@@ -244,9 +214,10 @@ export default function Room() {
     });
   };
 
-  // ── Code rotation (cosmetic — underlying room stays the same) ─────────────
+  // ── Code rotation disabled — display code must always equal the real room code
+  // (rotating to a random code broke joining for 3+ users)
   const handleCodeRotate = useCallback(() => {
-    setDisplayCode(generateRoomCode());
+    // no-op: do not rotate the code, it must stay as the real roomId
   }, []);
 
   // ── Scroll ─────────────────────────────────────────────────────────────────
@@ -326,7 +297,7 @@ export default function Room() {
         <div className="flex-1 flex flex-col overflow-hidden">
 
           {/* Room code bar */}
-          <RoomCodeDisplay roomCode={displayCode} onRotate={handleCodeRotate} />
+          <RoomCodeDisplay roomCode={displayCode} />
 
           {/* Top action bar */}
           <div
