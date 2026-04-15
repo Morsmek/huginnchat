@@ -4,7 +4,10 @@
 @tailwind utilities;
 
 /* ─────────────────────────────────────────
-   Huginn v2 — Obsidian + Amber Design System
+   Huginn v3 — Obsidian + Silver Design System
+   Inspired by the metallic raven logo:
+   pure black backgrounds, cool gunmetal surfaces,
+   silver/platinum text, silver-white accent.
    ───────────────────────────────────────── */
 :root, [data-theme="dark"] {
   --font-display: 'Cabinet Grotesk', 'Georgia', serif;
@@ -36,60 +39,57 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --transition: 180ms var(--ease);
 
-  /* Obsidian surfaces */
-  --bg:               #0e0d0b;
-  --surface:          #141310;
-  --surface-2:        #1a1816;
-  --surface-offset:   #211f1c;
-  --surface-dynamic:  #2a2724;
-  --divider:          #2f2c28;
-  --border:           #3a3631;
+  /* Pure black surfaces with cool blue-grey undertone (gunmetal) */
+  --bg:               #050507;
+  --surface:          #0c0c0f;
+  --surface-2:        #111116;
+  --surface-offset:   #18181f;
+  --surface-dynamic:  #202028;
+  --divider:          #26262f;
+  --border:           #32323e;
 
-  /* Text */
-  --text:             #e8e4de;
-  --text-muted:       #8a8279;
-  --text-faint:       #4d4843;
+  /* Silver/platinum text — cool white, not warm */
+  --text:             #e8e9ef;
+  --text-muted:       #7c7d8a;
+  --text-faint:       #44444f;
 
-  /* Amber accent — Huginn's eye */
-  --accent:           #d4870a;
-  --accent-hover:     #e8960f;
-  --accent-active:    #f5a520;
-  --accent-subtle:    rgba(212, 135, 10, 0.10);
-  --accent-ring:      rgba(212, 135, 10, 0.35);
-  --accent-on:        #0e0d0b;
+  /* Silver accent — matches the metallic logo */
+  --accent:           #b8bcd0;
+  --accent-hover:     #ced1e8;
+  --accent-active:    #e8eaf8;
+  --accent-subtle:    rgba(184, 188, 208, 0.08);
+  --accent-ring:      rgba(184, 188, 208, 0.25);
+  --accent-on:        #050507;
 
-  /* Status */
-  --success:          #5a9e48;
-  --success-subtle:   rgba(90, 158, 72, 0.12);
-  --error:            #cc4444;
-  --error-subtle:     rgba(204, 68, 68, 0.10);
+  /* Status — slightly cooler tones to fit the palette */
+  --success:          #4a9e6a;
+  --success-subtle:   rgba(74, 158, 106, 0.12);
+  --error:            #cc4455;
+  --error-subtle:     rgba(204, 68, 85, 0.10);
 
-  /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.35);
-  --shadow-md: 0 4px 16px rgba(0,0,0,0.45);
-  --shadow-lg: 0 12px 40px rgba(0,0,0,0.55);
-  --shadow-xl: 0 24px 64px rgba(0,0,0,0.65);
+  /* Shadows — deep black, no colour tint */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.5);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.6);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.7);
+  --shadow-xl: 0 24px 64px rgba(0,0,0,0.8);
 
-  /* shadcn HSL compat — NOTE: do NOT redefine --accent or --border here,
-     those are already set above as hex values for the design system. */
-  --background:            30 5% 6%;
-  --foreground:            36 15% 90%;
-  --card:                  30 5% 8%;
-  --card-foreground:       36 15% 90%;
-  --popover:               30 5% 8%;
-  --popover-foreground:    36 15% 90%;
-  --primary:               34 90% 44%;
-  --primary-foreground:    30 5% 6%;
-  --secondary:             30 5% 13%;
-  --secondary-foreground:  36 15% 90%;
-  --muted:                 30 5% 13%;
-  --muted-foreground:      30 5% 55%;
-  /* --accent and --accent-foreground intentionally omitted — set above as hex */
-  --destructive:           0 55% 42%;
-  --destructive-foreground:36 15% 90%;
-  /* --border intentionally omitted — set above as hex */
-  --input:                 30 5% 13%;
-  --ring:                  34 90% 44%;
+  /* shadcn HSL compat */
+  --background:            240 8% 3%;
+  --foreground:            230 12% 92%;
+  --card:                  240 8% 5%;
+  --card-foreground:       230 12% 92%;
+  --popover:               240 8% 5%;
+  --popover-foreground:    230 12% 92%;
+  --primary:               230 18% 75%;
+  --primary-foreground:    240 8% 3%;
+  --secondary:             240 8% 10%;
+  --secondary-foreground:  230 12% 92%;
+  --muted:                 240 8% 10%;
+  --muted-foreground:      230 8% 50%;
+  --destructive:           350 55% 45%;
+  --destructive-foreground:230 12% 92%;
+  --input:                 240 8% 10%;
+  --ring:                  230 18% 75%;
   --radius:                0.5rem;
 }
 
@@ -123,7 +123,7 @@ img, svg { display: block; max-width: 100%; }
 input, button, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; background: none; border: none; }
 
-::selection { background: rgba(212,135,10,0.22); color: var(--text); }
+::selection { background: rgba(184,188,208,0.18); color: var(--text); }
 
 :focus-visible {
   outline: 2px solid var(--accent);
@@ -161,20 +161,41 @@ button { cursor: pointer; background: none; border: none; }
   0%   { background-position: -200% 0; }
   100% { background-position:  200% 0; }
 }
-@keyframes pulseAmber {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(212,135,10,0.35); }
-  50%       { box-shadow: 0 0 0 5px rgba(212,135,10,0); }
+@keyframes pulseSilver {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(184,188,208,0.3); }
+  50%       { box-shadow: 0 0 0 5px rgba(184,188,208,0); }
 }
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes silverSheen {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
 }
 
 .fade-up      { animation: fadeUp   0.35s var(--ease) both; }
 .fade-in      { animation: fadeIn   0.25s var(--ease) both; }
 .bubble-in    { animation: bubbleIn 0.22s var(--ease) both; }
 .slide-up     { animation: slideUp  0.40s var(--ease) both; }
-.pulse-accent { animation: pulseAmber 2.5s ease-in-out infinite; }
+.pulse-accent { animation: pulseSilver 2.5s ease-in-out infinite; }
+
+/* Metallic shimmer on accent text */
+.text-metallic {
+  background: linear-gradient(
+    105deg,
+    #7a7e94 0%,
+    #c8cce0 30%,
+    #eef0f8 50%,
+    #c8cce0 70%,
+    #7a7e94 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: silverSheen 4s linear infinite;
+}
 
 .skeleton {
   background: linear-gradient(90deg,

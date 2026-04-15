@@ -69,7 +69,7 @@ function RoomCodeDisplay({ roomCode, fingerprint }: { roomCode: string; fingerpr
             onClick={handleCopy}
             aria-label="Copy room code"
             style={{
-              background: 'var(--accent-subtle)', border: '1px solid rgba(212,135,10,0.3)',
+              background: 'var(--accent-subtle)', border: '1px solid rgba(184,188,208,0.25)',
               color: 'var(--accent)', borderRadius: 'var(--radius-md)', padding: '0.2rem 0.5rem',
               cursor: 'pointer', fontSize: '0.65rem', display: 'inline-flex', alignItems: 'center', gap: '3px',
             }}
@@ -408,7 +408,7 @@ export default function Room() {
           <ScrollArea className="flex-1">
             <div className="py-4 space-y-0.5">
               {onlineCount === 1 && messages.length <= 1 && (
-                <div className="mx-4 mb-3 rounded-xl p-4" style={{ background: 'var(--accent-subtle)', border: '1px solid rgba(212,135,10,0.3)' }}>
+                <div className="mx-4 mb-3 rounded-xl p-4" style={{ background: 'var(--accent-subtle)', border: '1px solid rgba(184,188,208,0.15)' }}>
                   <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', lineHeight: 1.6 }}>
                     <span style={{ color: 'var(--accent)', fontWeight: 700 }}>Waiting for peers.</span>
                     {' '}Share the room code above. Others enter it on the Huginn home page to join.
